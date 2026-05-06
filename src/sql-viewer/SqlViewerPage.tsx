@@ -373,7 +373,7 @@ const codeStyle: React.CSSProperties = {
   fontFamily: '"Courier New", "JetBrains Mono", Consolas, monospace',
   background: 'transparent', display: 'block',
   padding: '0 20px', whiteSpace: 'pre',
-  color: '#1E293B',
+  color: '#0D1117',
 };
 
 const fullCenter: React.CSSProperties = {

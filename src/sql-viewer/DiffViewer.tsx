@@ -315,5 +315,5 @@ const codeLineStyle: React.CSSProperties = {
   whiteSpace: 'pre',
   flex:       1,
   padding:    '0 12px 0 8px',
-  color:      '#1E293B',
+  color:      '#0D1117',
 };
