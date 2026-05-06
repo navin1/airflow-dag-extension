@@ -99,18 +99,29 @@ export default function DagGraph({ tasks, onTaskClick, selectedTaskId }: DagGrap
   const [nodes, setNodes, onNodesChange] = useNodesState(layouted);
   const [edges, , onEdgesChange]         = useEdgesState(rawEdges);
 
-  // Update selected state via node style without re-running layout
+  // Update selected highlight without re-running layout
   useEffect(() => {
     setNodes(prev =>
       prev.map(n => ({ ...n, selected: n.id === selectedTaskId })),
     );
   }, [selectedTaskId, setNodes]);
 
-  // Re-initialise when tasks list changes
+  // Re-run layout only when the set of tasks changes (add/remove nodes)
   useEffect(() => {
     setNodes(layouted);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layouted.length]);
+
+  // Update node data (state colours) whenever task states change — no layout re-run
+  useEffect(() => {
+    if (!tasks.length) return;
+    const stateMap = new Map(tasks.map(t => [t.task_id, t.state ?? null]));
+    setNodes(prev => prev.map(n => ({
+      ...n,
+      data: { ...(n.data as TaskNodeData), state: stateMap.get(n.id) ?? null },
+    })));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {
