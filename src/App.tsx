@@ -65,13 +65,23 @@ export default function App() {
       setDagMeta(meta);
       setTasks(t);
 
-      // Fetch last 5 runs and default to last successful
+      // Fetch last 5 runs, default to last successful, then sync node colours to that run
       setRunsLoading(true);
       try {
         const runs = await fetchRecentRuns(envUrl, dagId, 5);
         setRecentRuns(runs);
         const defaultRun = runs.find(r => r.state === 'success') ?? runs[0] ?? null;
-        setSelectedRunId(defaultRun?.run_id ?? null);
+        if (defaultRun) {
+          setSelectedRunId(defaultRun.run_id);
+          // Overwrite states that loadDag set (which used last_run_id, possibly a different run)
+          try {
+            const stateMap = await fetchTaskStates(envUrl, dagId, defaultRun.run_id);
+            setTasks(prev => prev.map(task => ({
+              ...task,
+              state: stateMap.get(task.task_id) ?? null,
+            })));
+          } catch { /* Non-fatal */ }
+        }
       } catch {
         // Non-fatal: run selector simply won't show
       } finally {
