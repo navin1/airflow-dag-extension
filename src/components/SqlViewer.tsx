@@ -264,12 +264,10 @@ const centeredStyle: React.CSSProperties = {
 
 const preStyle: React.CSSProperties = {
   margin:     0,
-  padding:    '16px 0',
+  padding:    '16px 0 40px',  // generous bottom padding so last lines are never clipped
   fontSize:   13,
   lineHeight: 1.7,
   tabSize:    2,
-  overflow:   'auto',
-  height:     '100%',
   background: 'transparent',
 };
 
