@@ -37,9 +37,10 @@ interface SqlViewerData {
     last_run_start:    string | null;
     is_paused:         boolean;
   } | null;
-  sql:      string | null;
-  source:   'rendered' | 'raw' | 'none';
-  loadedAt: string;
+  sql:       string | null;
+  source:    'rendered' | 'raw' | 'none';
+  truncated: boolean;
+  loadedAt:  string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -84,6 +85,40 @@ async function readFromStorage(): Promise<SqlViewerData | null> {
       resolve((r.sql_viewer_data as SqlViewerData) ?? null),
     ),
   );
+}
+
+// ── Truncation detection ──────────────────────────────────────────────────────
+// Combines the server-side flag with a content heuristic on the displayed SQL.
+
+function detectTruncation(sql: string | null, serverFlag: boolean): boolean {
+  if (serverFlag) return true;
+  if (!sql) return false;
+  const s = sql.trimEnd();
+
+  // Walk characters to check unbalanced parentheses (ignore string literals)
+  let depth = 0; let inStr = false; let strCh = '';
+  for (const ch of s) {
+    if (inStr) { if (ch === strCh) inStr = false; }
+    else if (ch === "'" || ch === '"' || ch === '`') { inStr = true; strCh = ch; }
+    else if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+  }
+  if (depth > 0) return true;
+
+  // Ends with a comma → mid column/arg list
+  if (s.slice(-1) === ',') return true;
+
+  // Last meaningful token is a SQL keyword that expects more tokens
+  const lastToken = s.replace(/[;,\s]+$/, '').split(/\s+/).pop()?.toUpperCase() ?? '';
+  const dangling = new Set([
+    'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'JOIN', 'INNER', 'LEFT',
+    'RIGHT', 'FULL', 'OUTER', 'CROSS', 'ON', 'GROUP', 'ORDER', 'HAVING',
+    'BY', 'WITH', 'SET', 'INTO', 'VALUES', 'BETWEEN', 'LIKE', 'IN', 'AS',
+    'CASE', 'WHEN', 'THEN', 'ELSE', 'UNION', 'INTERSECT', 'EXCEPT',
+  ]);
+  if (dangling.has(lastToken)) return true;
+
+  return false;
 }
 
 // ── Copy / Download buttons ───────────────────────────────────────────────────
@@ -176,10 +211,11 @@ export default function SqlViewerPage() {
     );
   }
 
-  const stateColor = STATE_COLORS[data.state ?? ''] ?? STATE_COLORS._default;
-  const stateIcon  = data.state ? STATE_ICONS[data.state] ?? '◆' : null;
-  const hasSql     = !!data.sql;
-  const dark       = theme.dark;
+  const stateColor  = STATE_COLORS[data.state ?? ''] ?? STATE_COLORS._default;
+  const stateIcon   = data.state ? STATE_ICONS[data.state] ?? '◆' : null;
+  const hasSql      = !!data.sql;
+  const dark        = theme.dark;
+  const isTruncated = detectTruncation(data.sql, data.truncated ?? false);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif', background: theme.bg }}>
@@ -252,6 +288,18 @@ export default function SqlViewerPage() {
           <button onClick={() => setShowDiff(false)} style={actionBtnStyle(dark)}>← Back to SQL</button>
           <span style={{ fontSize: 12, color: dark ? '#94A3B8' : '#64748B', marginLeft: 8 }}>
             Vertex AI optimization
+          </span>
+        </div>
+      )}
+
+      {/* ── Truncation warning ───────────────────────────────────────────── */}
+      {isTruncated && !showDiff && (
+        <div style={truncationBar}>
+          <TriangleAlert size={14} style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Incomplete SQL detected.</strong> The rendered SQL stored in Airflow appears to be
+            cut off — the query below may be missing its final statements. Optimization results may also
+            be incomplete. Check the task&apos;s rendered_fields directly in Airflow for the full query.
           </span>
         </div>
       )}
@@ -345,6 +393,13 @@ const errorBar: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '8px 16px', background: '#FEF2F2', color: '#B91C1C',
   fontSize: 12, borderBottom: '1px solid #FECACA', flexShrink: 0,
+};
+
+const truncationBar: React.CSSProperties = {
+  display: 'flex', alignItems: 'flex-start', gap: 10,
+  padding: '9px 16px', background: '#FEF2F2', color: '#991B1B',
+  fontSize: 12, lineHeight: 1.5,
+  borderBottom: '2px solid #EF4444', flexShrink: 0,
 };
 
 const fullCenter = (bg: string): React.CSSProperties => ({

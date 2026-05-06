@@ -49,8 +49,9 @@ export interface DagRun {
 }
 
 export interface TaskSqlResult {
-  sql: string | null;
-  source: 'rendered' | 'raw' | 'none';
+  sql:       string | null;
+  source:    'rendered' | 'raw' | 'none';
+  truncated: boolean;   // true when Airflow's rendered_fields were cut off
 }
 
 // ── ReactFlow node data ────────────────────────────────────────────────────────

@@ -137,9 +137,10 @@ export default function App() {
               is_paused:         dagMeta.is_paused,
             }
           : null,
-        sql:      result.sql,
-        source:   result.source,
-        loadedAt: new Date().toISOString(),
+        sql:       result.sql,
+        source:    result.source,
+        truncated: result.truncated,
+        loadedAt:  new Date().toISOString(),
       });
 
       openSqlViewerTab();

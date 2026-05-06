@@ -237,8 +237,9 @@ export async function fetchTaskSql(
   }
 
   const chosen = bestSql(rawSql, renderedSql, renderedTruncated);
-  if (!chosen) return { sql: null, source: 'none' };
+  if (!chosen) return { sql: null, source: 'none', truncated: false };
 
-  const source: TaskSqlResult['source'] = renderedSql && !renderedTruncated ? 'rendered' : 'raw';
-  return { sql: formatSql(chosen), source };
+  const usedRendered = chosen === renderedSql;
+  const source: TaskSqlResult['source'] = usedRendered && !renderedTruncated ? 'rendered' : 'raw';
+  return { sql: formatSql(chosen), source, truncated: usedRendered && renderedTruncated };
 }

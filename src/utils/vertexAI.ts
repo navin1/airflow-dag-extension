@@ -88,23 +88,49 @@ async function callGemini(prompt: string, settings: VertexSettings): Promise<str
 // ── Public API ────────────────────────────────────────────────────────────────
 
 const OPTIMIZATION_PROMPT = (sql: string) => `\
-You are an expert BigQuery SQL performance engineer.
+You are a senior Google Cloud data engineer and SQL architect specializing in BigQuery.
+Your task has two equally important parts: SELF-DOCUMENTATION and PERFORMANCE OPTIMIZATION.
 
-Task:
-1. Optimize the SQL below for BigQuery performance. Focus on:
-   - Partition and cluster pruning
-   - Avoiding SELECT *; select only needed columns
-   - Predicate pushdown before joins
-   - Replacing subqueries with CTEs where beneficial
-   - Reducing bytes scanned / shuffle
-2. Add EXACTLY ONE professional single-line SQL comment (-- ...) immediately above the first statement describing what the query does. Keep it concise (≤ 120 chars).
+━━━ PART 1 — SELF-DOCUMENTATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Rules:
-- Return ONLY the final SQL (with the comment). No explanations, no markdown fences.
+Add professional, production-grade documentation using only -- line comments (never /* */):
+
+A) FILE-LEVEL HEADER  (place at the very top, before any SQL)
+   Format exactly as shown — fill in every field based on what the SQL actually does:
+
+   -- ============================================================
+   -- Purpose : <one sentence: what business question this answers>
+   -- Source  : <comma-separated list of source tables/views read>
+   -- Output  : <what the result set / destination table represents>
+   -- Notes   : <key assumptions, partition filters, or edge cases>
+   -- ============================================================
+
+B) STATEMENT-LEVEL ANNOTATIONS
+   Add a single -- comment immediately above each:
+   • WITH clause / individual CTE definition
+   • SELECT, INSERT, UPDATE, DELETE, MERGE, or CREATE statement
+   • Significant JOIN that is non-obvious in purpose
+   Each annotation must describe the BUSINESS LOGIC (the "why"), not just
+   restate the syntax. Keep each annotation ≤ 120 characters.
+
+━━━ PART 2 — PERFORMANCE OPTIMIZATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Optimize the SQL for BigQuery cost and speed:
+   • Apply partition and cluster pruning filters as early as possible
+   • Eliminate SELECT *; reference only required columns
+   • Push predicates before JOINs to reduce shuffle
+   • Replace correlated subqueries with CTEs
+   • Prefer QUALIFY over nested subqueries for window-function filters
+   • Use APPROX_COUNT_DISTINCT where exact cardinality is not required
+
+━━━ RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Return ONLY the final documented + optimized SQL. No explanations, no markdown.
 - Preserve the original query's logic and result set exactly.
-- If the query is already optimal, return it as-is with only the comment added.
+- Every CTE and every top-level statement must have its annotation — no exceptions.
+- If the query is already optimal, still apply full documentation (Part 1 is mandatory).
 
-SQL to optimize:
+SQL:
 ${sql}`;
 
 /**
