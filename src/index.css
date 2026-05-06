@@ -45,20 +45,21 @@ body {
   text-align: right;
 }
 
-/* ── Highlight.js theme adjustments ──────────────────────────────────────── */
+/* ── Highlight.js theme adjustments (github light theme) ─────────────────── */
 .hljs {
   background: transparent !important;
   padding: 0 !important;
+  color: #24292e !important;
 }
 
-/* BigQuery / SQL keyword colours look nicer with stronger contrast */
-.hljs-keyword   { color: #C792EA !important; font-weight: 600; }
-.hljs-built_in  { color: #82AAFF !important; }
-.hljs-string    { color: #C3E88D !important; }
-.hljs-number    { color: #F78C6C !important; }
-.hljs-comment   { color: #546E7A !important; font-style: italic; }
-.hljs-operator  { color: #89DDFF !important; }
-.hljs-punctuation { color: #89DDFF !important; }
+/* Strengthen SQL keyword contrast on light background */
+.hljs-keyword   { color: #d73a49 !important; font-weight: 600; }
+.hljs-built_in  { color: #005cc5 !important; }
+.hljs-string    { color: #032f62 !important; }
+.hljs-number    { color: #005cc5 !important; }
+.hljs-comment   { color: #6a737d !important; font-style: italic; }
+.hljs-operator  { color: #d73a49 !important; }
+.hljs-punctuation { color: #24292e !important; }
 
 /* ── Scrollbar styling ────────────────────────────────────────────────────── */
 ::-webkit-scrollbar          { width: 6px; height: 6px; }

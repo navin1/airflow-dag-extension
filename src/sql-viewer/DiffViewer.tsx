@@ -12,7 +12,7 @@ import { useMemo } from 'react';
 import { diffLines } from 'diff';
 import hljs from 'highlight.js/lib/core';
 import sql from 'highlight.js/lib/languages/sql';
-import 'highlight.js/styles/atom-one-dark.css';
+import 'highlight.js/styles/github.css';
 import { Copy, Download } from 'lucide-react';
 
 hljs.registerLanguage('sql', sql);
@@ -108,9 +108,9 @@ function hl(line: string): string {
 
 const BG: Record<LineType, string> = {
   normal:  'transparent',
-  removed: 'rgba(239,68,68,0.18)',
-  added:   'rgba(16,185,129,0.18)',
-  empty:   'rgba(255,255,255,0.03)',
+  removed: '#FFF0F0',
+  added:   '#F0FFF8',
+  empty:   '#FAFAFA',
 };
 
 const BORDER_LEFT: Record<LineType, string> = {
@@ -236,13 +236,13 @@ export default function DiffViewer({ original, optimized }: DiffViewerProps) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const statsBar: React.CSSProperties = {
-  display:    'flex',
-  gap:        16,
-  padding:    '8px 20px',
-  background: '#0F172A',
-  borderBottom: '1px solid #1E293B',
-  alignItems: 'center',
-  flexShrink: 0,
+  display:      'flex',
+  gap:          16,
+  padding:      '8px 20px',
+  background:   '#F8FAFC',
+  borderBottom: '1px solid #E2E8F0',
+  alignItems:   'center',
+  flexShrink:   0,
 };
 
 const diffContainer: React.CSSProperties = {
@@ -252,16 +252,16 @@ const diffContainer: React.CSSProperties = {
 };
 
 const panelStyle: React.CSSProperties = {
-  flex:           1,
-  display:        'flex',
-  flexDirection:  'column',
-  overflow:       'hidden',
-  background:     '#0D1117',
+  flex:          1,
+  display:       'flex',
+  flexDirection: 'column',
+  overflow:      'hidden',
+  background:    '#FFFFFF',
 };
 
 const divider: React.CSSProperties = {
   width:      2,
-  background: '#1E293B',
+  background: '#E2E8F0',
   flexShrink: 0,
 };
 
@@ -269,8 +269,8 @@ const actionBarStyle: React.CSSProperties = {
   display:      'flex',
   alignItems:   'center',
   padding:      '8px 12px',
-  background:   '#0F172A',
-  borderBottom: '1px solid #1E293B',
+  background:   '#F8FAFC',
+  borderBottom: '1px solid #E2E8F0',
   gap:          8,
   flexShrink:   0,
 };
@@ -280,24 +280,24 @@ const actionBtn: React.CSSProperties = {
   alignItems:   'center',
   gap:          4,
   fontSize:     11,
-  color:        '#94A3B8',
-  background:   'rgba(255,255,255,0.06)',
-  border:       '1px solid rgba(255,255,255,0.1)',
+  color:        '#475569',
+  background:   '#fff',
+  border:       '1px solid #E2E8F0',
   borderRadius: 5,
   padding:      '3px 8px',
   cursor:       'pointer',
 };
 
 const codeArea: React.CSSProperties = {
-  flex:       1,
-  overflow:   'auto',
+  flex:          1,
+  overflow:      'auto',
   paddingBottom: 40,
 };
 
 const lineNumStyle: React.CSSProperties = {
   display:    'inline-block',
   minWidth:   '3em',
-  color:      '#3D4F5E',
+  color:      '#CBD5E1',
   fontSize:   12,
   fontFamily: '"Courier New", monospace',
   padding:    '0 8px',
@@ -305,13 +305,15 @@ const lineNumStyle: React.CSSProperties = {
   flexShrink: 0,
   textAlign:  'right',
   lineHeight: '1.7em',
+  borderRight: '1px solid #F1F5F9',
 };
 
 const codeLineStyle: React.CSSProperties = {
-  fontFamily:  '"Courier New", "JetBrains Mono", Consolas, monospace',
-  fontSize:    13,
-  lineHeight:  '1.7em',
-  whiteSpace:  'pre',
-  flex:        1,
-  padding:     '0 12px 0 4px',
+  fontFamily: '"Courier New", "JetBrains Mono", Consolas, monospace',
+  fontSize:   13,
+  lineHeight: '1.7em',
+  whiteSpace: 'pre',
+  flex:       1,
+  padding:    '0 12px 0 8px',
+  color:      '#1E293B',
 };

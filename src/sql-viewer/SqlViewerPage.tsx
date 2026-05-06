@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/core';
 import sql from 'highlight.js/lib/languages/sql';
-import 'highlight.js/styles/atom-one-dark.css';
+import 'highlight.js/styles/github.css';
 import {
   Copy, CheckCheck, Download, Sparkles, Layers,
   TriangleAlert, Info, RefreshCw,
@@ -272,7 +272,7 @@ export default function SqlViewerPage() {
       )}
 
       {/* ── Content area ────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#0D1117' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#FFFFFF' }}>
 
         {/* No SQL */}
         {!hasSql && (
@@ -313,7 +313,7 @@ function tag(bg: string, color: string): React.CSSProperties {
 const pageStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', height: '100vh',
   overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif',
-  background: '#0D1117',
+  background: '#F8FAFC',
 };
 
 const headerStyle: React.CSSProperties = {
@@ -329,31 +329,31 @@ const logoBox: React.CSSProperties = {
 
 const actionBar: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
-  padding: '8px 16px', background: '#0F172A',
-  borderBottom: '1px solid #1E293B', flexShrink: 0,
+  padding: '8px 16px', background: '#F8FAFC',
+  borderBottom: '1px solid #E2E8F0', flexShrink: 0,
 };
 
 const actionBtn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
-  fontSize: 12, color: '#94A3B8',
-  background: 'rgba(255,255,255,0.07)',
-  border: '1px solid rgba(255,255,255,0.12)',
+  fontSize: 12, color: '#475569',
+  background: '#fff',
+  border: '1px solid #E2E8F0',
   borderRadius: 6, padding: '5px 11px', cursor: 'pointer',
 };
 
 const optimizeBtn = (disabled: boolean): React.CSSProperties => ({
   display: 'inline-flex', alignItems: 'center', gap: 6,
   fontSize: 12, fontWeight: 600,
-  color:      disabled ? '#6B7280'  : '#fff',
-  background: disabled ? '#1E293B'  : 'linear-gradient(135deg,#6366F1,#8B5CF6)',
+  color:      disabled ? '#9CA3AF' : '#fff',
+  background: disabled ? '#E2E8F0' : 'linear-gradient(135deg,#6366F1,#8B5CF6)',
   border: 'none', borderRadius: 7, padding: '6px 14px',
   cursor: disabled ? 'not-allowed' : 'pointer',
-  boxShadow: disabled ? 'none' : '0 2px 8px rgba(99,102,241,0.4)',
+  boxShadow: disabled ? 'none' : '0 2px 8px rgba(99,102,241,0.35)',
 });
 
 const backBtn: React.CSSProperties = {
-  fontSize: 12, color: '#94A3B8', background: 'rgba(255,255,255,0.07)',
-  border: '1px solid rgba(255,255,255,0.12)',
+  fontSize: 12, color: '#475569', background: '#fff',
+  border: '1px solid #E2E8F0',
   borderRadius: 6, padding: '5px 11px', cursor: 'pointer',
 };
 
@@ -373,6 +373,7 @@ const codeStyle: React.CSSProperties = {
   fontFamily: '"Courier New", "JetBrains Mono", Consolas, monospace',
   background: 'transparent', display: 'block',
   padding: '0 20px', whiteSpace: 'pre',
+  color: '#1E293B',
 };
 
 const fullCenter: React.CSSProperties = {
@@ -382,7 +383,7 @@ const fullCenter: React.CSSProperties = {
 };
 
 const spinner: React.CSSProperties = {
-  width: 28, height: 28, border: '3px solid #1E293B',
+  width: 28, height: 28, border: '3px solid #E2E8F0',
   borderTop: '3px solid #6366F1', borderRadius: '50%',
   animation: 'spin 0.7s linear infinite',
 };
