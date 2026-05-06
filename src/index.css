@@ -1,0 +1,82 @@
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #F0F4F8;
+}
+
+/* ── Spinner animation ────────────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── ReactFlow overrides ──────────────────────────────────────────────────── */
+.react-flow__attribution {
+  display: none !important;
+}
+
+.react-flow__node:hover {
+  filter: brightness(1.08);
+}
+
+/* ── SQL line numbers ─────────────────────────────────────────────────────── */
+.line-num {
+  display: inline-block;
+  width: 3.2em;
+  color: #4B5563;
+  user-select: none;
+  padding-right: 1em;
+  border-right: 1px solid #1E293B;
+  margin-right: 0.8em;
+  font-size: 0.85em;
+  opacity: 0.6;
+  text-align: right;
+}
+
+/* ── Highlight.js theme adjustments ──────────────────────────────────────── */
+.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* BigQuery / SQL keyword colours look nicer with stronger contrast */
+.hljs-keyword   { color: #C792EA !important; font-weight: 600; }
+.hljs-built_in  { color: #82AAFF !important; }
+.hljs-string    { color: #C3E88D !important; }
+.hljs-number    { color: #F78C6C !important; }
+.hljs-comment   { color: #546E7A !important; font-style: italic; }
+.hljs-operator  { color: #89DDFF !important; }
+.hljs-punctuation { color: #89DDFF !important; }
+
+/* ── Scrollbar styling ────────────────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 6px; height: 6px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* Dark scrollbar for code panel */
+.hljs::-webkit-scrollbar-thumb { background: #334155; }
+
+/* ── Focus rings ──────────────────────────────────────────────────────────── */
+input:focus, select:focus {
+  border-color: #6366F1 !important;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.18);
+}
+
+/* ── Utility ──────────────────────────────────────────────────────────────── */
+button:focus-visible {
+  outline: 2px solid #6366F1;
+  outline-offset: 2px;
+}
