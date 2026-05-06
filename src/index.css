@@ -45,21 +45,13 @@ body {
   text-align: right;
 }
 
-/* ── Highlight.js theme adjustments (github light theme) ─────────────────── */
+/* ── Highlight.js base overrides ──────────────────────────────────────────── */
+/* Only suppress the built-in background/padding — let the injected theme CSS  */
+/* control all token colors so dark and light themes render correctly.          */
 .hljs {
   background: transparent !important;
   padding: 0 !important;
-  color: #0D1117 !important;
 }
-
-/* Strengthen SQL keyword contrast on light background */
-.hljs-keyword   { color: #d73a49 !important; font-weight: 600; }
-.hljs-built_in  { color: #005cc5 !important; }
-.hljs-string    { color: #032f62 !important; }
-.hljs-number    { color: #005cc5 !important; }
-.hljs-comment   { color: #6a737d !important; font-style: italic; }
-.hljs-operator  { color: #d73a49 !important; }
-.hljs-punctuation { color: #24292e !important; }
 
 /* ── Scrollbar styling ────────────────────────────────────────────────────── */
 ::-webkit-scrollbar          { width: 6px; height: 6px; }

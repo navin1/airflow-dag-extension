@@ -12,7 +12,7 @@ import {
   formatSql,
   isSqlFilePath,
 } from './sqlUtils';
-import type { AirflowTask, DagMeta, TaskSqlResult, TaskState } from '../types';
+import type { AirflowTask, DagMeta, DagRun, TaskSqlResult, TaskState } from '../types';
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -143,19 +143,41 @@ export async function loadDag(
   return { meta, tasks };
 }
 
+// ── Recent DAG runs ───────────────────────────────────────────────────────────
+
+/** Returns the last `limit` DAG runs (any state) sorted newest-first. */
+export async function fetchRecentRuns(
+  baseUrl: string,
+  dagId: string,
+  limit = 5,
+): Promise<DagRun[]> {
+  const data = await apiFetch(baseUrl, `/dags/${enc(dagId)}/dagRuns`, {
+    limit: String(limit), order_by: '-execution_date',
+  }) as Record<string, unknown>;
+  const runs = (data.dag_runs ?? []) as Record<string, unknown>[];
+  return runs.map(r => ({
+    run_id:         String(r.dag_run_id ?? ''),
+    state:          String(r.state ?? ''),
+    execution_date: String(r.execution_date ?? ''),
+    start_date:     (r.start_date as string) ?? null,
+  }));
+}
+
 // ── Task SQL ──────────────────────────────────────────────────────────────────
 
 /**
  * Fetches rendered SQL for a single task.
- * Strategy (mirrors get_task_sql in composer_tools.py):
- *  1. Walk last 10 successful dag runs → GET taskInstances/{task_id} → extract rendered_fields
- *  2. If still nothing, GET /dags/{dag_id}/tasks/{task_id} → extract raw SQL
- *  3. Apply bestSql() + formatSql()
+ * Strategy:
+ *  1. If preferRunId is given, try that run first for rendered SQL.
+ *  2. Fall back to last 10 successful runs if rendered not found.
+ *  3. Always try raw task definition as a fallback.
+ *  4. Apply bestSql() + formatSql().
  */
 export async function fetchTaskSql(
   baseUrl: string,
   dagId: string,
   taskId: string,
+  preferRunId?: string | null,
 ): Promise<TaskSqlResult> {
   let rawSql: string | null = null;
   let renderedSql: string | null = null;
@@ -166,13 +188,11 @@ export async function fetchTaskSql(
     const taskDef = await apiFetch(baseUrl, `/dags/${enc(dagId)}/tasks/${enc(taskId)}`) as Record<string, unknown>;
     rawSql = extractSql(taskDef);
 
-    // Note if the sql field is a file path reference — we can't fetch the file
-    // from within the extension, but the rendered fields should have the content.
     if (!rawSql) {
       for (const key of ['sql', 'query', 'bql']) {
         const val = taskDef[key];
         if (typeof val === 'string' && isSqlFilePath(val)) {
-          rawSql = null; // will come from rendered_fields
+          rawSql = null;
           break;
         }
       }
@@ -181,30 +201,39 @@ export async function fetchTaskSql(
     // Non-fatal
   }
 
-  // Attempt 2: rendered SQL from last successful runs
-  try {
-    const runsData = await apiFetch(baseUrl, `/dags/${enc(dagId)}/dagRuns`, {
-      limit: '10', order_by: '-execution_date', state: 'success',
-    }) as Record<string, unknown>;
-    const runs = (runsData.dag_runs ?? []) as Record<string, unknown>[];
+  // Attempt 2: rendered SQL — try preferRunId first, then walk recent successful runs
+  const tryRenderFromRun = async (runId: string): Promise<boolean> => {
+    try {
+      const ti = await apiFetch(
+        baseUrl,
+        `/dags/${enc(dagId)}/dagRuns/${enc(runId)}/taskInstances/${enc(taskId)}`,
+      );
+      const sql = extractRenderedSql(ti);
+      const trunc = wasRenderedTruncated(ti);
+      if (sql) { renderedSql = sql; renderedTruncated = trunc; return true; }
+    } catch { /* task not in this run */ }
+    return false;
+  };
 
-    for (const run of runs) {
-      const runId = String(run.dag_run_id ?? '');
-      if (!runId) continue;
-      try {
-        const ti = await apiFetch(
-          baseUrl,
-          `/dags/${enc(dagId)}/dagRuns/${enc(runId)}/taskInstances/${enc(taskId)}`,
-        );
-        renderedSql = extractRenderedSql(ti);
-        renderedTruncated = wasRenderedTruncated(ti);
-        if (renderedSql) break;
-      } catch {
-        continue; // task may not have run in this DAG run
+  if (preferRunId) {
+    await tryRenderFromRun(preferRunId);
+  }
+
+  if (!renderedSql) {
+    try {
+      const runsData = await apiFetch(baseUrl, `/dags/${enc(dagId)}/dagRuns`, {
+        limit: '10', order_by: '-execution_date', state: 'success',
+      }) as Record<string, unknown>;
+      const runs = (runsData.dag_runs ?? []) as Record<string, unknown>[];
+
+      for (const run of runs) {
+        const runId = String(run.dag_run_id ?? '');
+        if (!runId || runId === preferRunId) continue; // skip if already tried
+        if (await tryRenderFromRun(runId)) break;
       }
+    } catch {
+      // Non-fatal
     }
-  } catch {
-    // Non-fatal
   }
 
   const chosen = bestSql(rawSql, renderedSql, renderedTruncated);

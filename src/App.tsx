@@ -4,8 +4,8 @@ import DagExplorer   from './components/DagExplorer';
 import DagGraph      from './components/DagGraph';
 import SettingsPanel from './components/SettingsPanel';
 
-import { loadDag, fetchTaskSql } from './utils/airflow';
-import type { AirflowTask, DagMeta } from './types';
+import { loadDag, fetchRecentRuns, fetchTaskSql, fetchTaskStates } from './utils/airflow';
+import type { AirflowTask, DagMeta, DagRun } from './types';
 
 // ── Storage helper ────────────────────────────────────────────────────────────
 
@@ -39,6 +39,11 @@ export default function App() {
   const [currentEnv, setCurrentEnv] = useState('');
   const [currentDag, setCurrentDag] = useState('');
 
+  // Recent runs for the run selector
+  const [recentRuns,    setRecentRuns]    = useState<DagRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runsLoading,   setRunsLoading]   = useState(false);
+
   // Which task is currently having its SQL fetched (shows loading state on node)
   const [fetchingTaskId, setFetchingTaskId] = useState<string | null>(null);
   const [fetchError,     setFetchError]     = useState<string | null>(null);
@@ -51,18 +56,44 @@ export default function App() {
     setTasks([]);
     setDagMeta(null);
     setFetchError(null);
+    setRecentRuns([]);
+    setSelectedRunId(null);
     setCurrentEnv(envUrl);
     setCurrentDag(dagId);
     try {
       const { meta, tasks: t } = await loadDag(envUrl, dagId);
       setDagMeta(meta);
       setTasks(t);
+
+      // Fetch last 5 runs and default to last successful
+      setRunsLoading(true);
+      try {
+        const runs = await fetchRecentRuns(envUrl, dagId, 5);
+        setRecentRuns(runs);
+        const defaultRun = runs.find(r => r.state === 'success') ?? runs[0] ?? null;
+        setSelectedRunId(defaultRun?.run_id ?? null);
+      } catch {
+        // Non-fatal: run selector simply won't show
+      } finally {
+        setRunsLoading(false);
+      }
     } catch (e) {
       setDagError((e as Error).message);
     } finally {
       setDagLoading(false);
     }
   }, []);
+
+  // Re-load task states when user picks a different run
+  const handleRunChange = useCallback(async (runId: string) => {
+    setSelectedRunId(runId);
+    try {
+      const stateMap = await fetchTaskStates(currentEnv, currentDag, runId);
+      setTasks(prev => prev.map(t => ({ ...t, state: stateMap.get(t.task_id) ?? null })));
+    } catch {
+      // Non-fatal
+    }
+  }, [currentEnv, currentDag]);
 
   // ── Task click → fetch SQL → store → open new tab ─────────────────────────
 
@@ -80,7 +111,7 @@ export default function App() {
       .trim();
 
     try {
-      const result = await fetchTaskSql(currentEnv, currentDag, taskId);
+      const result = await fetchTaskSql(currentEnv, currentDag, taskId, selectedRunId);
 
       await storeSqlViewerData({
         taskId,
@@ -107,7 +138,7 @@ export default function App() {
     } finally {
       setFetchingTaskId(null);
     }
-  }, [tasks, currentEnv, currentDag, dagMeta, fetchingTaskId]);
+  }, [tasks, currentEnv, currentDag, dagMeta, fetchingTaskId, selectedRunId]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -124,6 +155,34 @@ export default function App() {
         dagMeta={dagMeta}
         error={dagError}
       />
+
+      {/* ── Run selector bar ────────────────────────────────────────────── */}
+      {(recentRuns.length > 0 || runsLoading) && (
+        <div style={runBarStyle}>
+          <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            DAG Run:
+          </span>
+          {runsLoading ? (
+            <div style={miniSpinner} />
+          ) : (
+            <select
+              value={selectedRunId ?? ''}
+              onChange={e => handleRunChange(e.target.value)}
+              style={runSelectStyle}
+            >
+              {recentRuns.map(r => (
+                <option key={r.run_id} value={r.run_id}>
+                  {RUN_STATE_PREFIX[r.state] ?? '◆'} {formatRunDate(r.execution_date)}
+                  {r.state !== 'success' ? `  [${r.state}]` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <span style={{ fontSize: 10, color: '#94A3B8' }}>
+            Showing task states &amp; SQL for the selected run
+          </span>
+        </div>
+      )}
 
       {/* ── Task fetch status bar ───────────────────────────────────────── */}
       {(fetchingTaskId || fetchError) && (
@@ -173,6 +232,24 @@ export default function App() {
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
     </div>
   );
+}
+
+// ── Run selector helpers ──────────────────────────────────────────────────────
+
+const RUN_STATE_PREFIX: Record<string, string> = {
+  success:  '✓',
+  failed:   '✗',
+  running:  '↻',
+  queued:   '◎',
+};
+
+function formatRunDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return iso; }
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -236,6 +313,18 @@ const spinnerStyle: React.CSSProperties = {
   width: 32, height: 32, border: '3px solid #E2E8F0',
   borderTop: '3px solid #6366F1', borderRadius: '50%',
   animation: 'spin 0.7s linear infinite',
+};
+
+const runBarStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '5px 16px', background: '#F8FAFC',
+  borderBottom: '1px solid #E2E8F0', flexShrink: 0,
+};
+
+const runSelectStyle: React.CSSProperties = {
+  fontSize: 12, border: '1px solid #CBD5E1', borderRadius: 6,
+  padding: '3px 8px', background: '#fff', color: '#1E293B',
+  cursor: 'pointer', outline: 'none', minWidth: 220,
 };
 
 const miniSpinner: React.CSSProperties = {

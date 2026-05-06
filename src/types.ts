@@ -41,6 +41,13 @@ export interface DagMeta {
   last_success_run_id: string | null;
 }
 
+export interface DagRun {
+  run_id:         string;
+  state:          string;
+  execution_date: string;
+  start_date:     string | null;
+}
+
 export interface TaskSqlResult {
   sql: string | null;
   source: 'rendered' | 'raw' | 'none';
