@@ -1,43 +1,56 @@
 import { useCallback, useState } from 'react';
-import Header       from './components/Header';
-import DagExplorer  from './components/DagExplorer';
-import DagGraph     from './components/DagGraph';
-import SqlViewer    from './components/SqlViewer';
+import Header        from './components/Header';
+import DagExplorer   from './components/DagExplorer';
+import DagGraph      from './components/DagGraph';
 import SettingsPanel from './components/SettingsPanel';
 
 import { loadDag, fetchTaskSql } from './utils/airflow';
-import type { AirflowTask, DagMeta, TaskNodeData, TaskSqlResult } from './types';
+import type { AirflowTask, DagMeta } from './types';
+
+// ── Storage helper ────────────────────────────────────────────────────────────
+
+async function storeSqlViewerData(data: Record<string, unknown>): Promise<void> {
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    return new Promise(r => chrome.storage.local.set({ sql_viewer_data: data }, r));
+  }
+}
+
+function openSqlViewerTab(): void {
+  if (typeof chrome !== 'undefined' && chrome.tabs) {
+    chrome.tabs.create({ url: chrome.runtime.getURL('sql-viewer.html') });
+  } else {
+    // Dev fallback
+    window.open('/sql-viewer.html', '_blank');
+  }
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  // ── UI state ────────────────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
 
-  // ── DAG state ───────────────────────────────────────────────────────────────
-  const [dagLoading, setDagLoading]     = useState(false);
-  const [dagError,   setDagError]       = useState<string | null>(null);
-  const [dagMeta,    setDagMeta]        = useState<DagMeta | null>(null);
-  const [tasks,      setTasks]          = useState<AirflowTask[]>([]);
+  // DAG state
+  const [dagLoading, setDagLoading] = useState(false);
+  const [dagError,   setDagError]   = useState<string | null>(null);
+  const [dagMeta,    setDagMeta]    = useState<DagMeta | null>(null);
+  const [tasks,      setTasks]      = useState<AirflowTask[]>([]);
 
-  // Current environment/DAG (needed when fetching SQL on click)
-  const [currentEnv, setCurrentEnv]     = useState<string>('');
-  const [currentDag, setCurrentDag]     = useState<string>('');
+  // Current env/dag needed for SQL fetch
+  const [currentEnv, setCurrentEnv] = useState('');
+  const [currentDag, setCurrentDag] = useState('');
 
-  // ── SQL panel state ─────────────────────────────────────────────────────────
-  const [selectedTask,  setSelectedTask]  = useState<TaskNodeData | null>(null);
-  const [sqlResult,     setSqlResult]     = useState<TaskSqlResult | null>(null);
-  const [sqlLoading,    setSqlLoading]    = useState(false);
-  const [sqlError,      setSqlError]      = useState<string | null>(null);
+  // Which task is currently having its SQL fetched (shows loading state on node)
+  const [fetchingTaskId, setFetchingTaskId] = useState<string | null>(null);
+  const [fetchError,     setFetchError]     = useState<string | null>(null);
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
+  // ── Load DAG ──────────────────────────────────────────────────────────────
 
   const handleLoadDag = useCallback(async (envUrl: string, dagId: string) => {
     setDagLoading(true);
     setDagError(null);
     setTasks([]);
     setDagMeta(null);
-    setSelectedTask(null);
-    setSqlResult(null);
-    setSqlError(null);
+    setFetchError(null);
     setCurrentEnv(envUrl);
     setCurrentDag(dagId);
     try {
@@ -51,48 +64,55 @@ export default function App() {
     }
   }, []);
 
-  const handleTaskClick = useCallback(async (taskId: string, operatorFull: string) => {
-    // Build TaskNodeData from the tasks list
-    const t = tasks.find(x => x.task_id === taskId);
-    if (!t) return;
+  // ── Task click → fetch SQL → store → open new tab ─────────────────────────
 
+  const handleTaskClick = useCallback(async (taskId: string, operatorFull: string) => {
+    if (fetchingTaskId) return; // prevent double-click while loading
+
+    setFetchingTaskId(taskId);
+    setFetchError(null);
+
+    const t = tasks.find(x => x.task_id === taskId);
     const opShort = operatorFull
       .replace('Operator', '')
       .replace('BigQuery', 'BQ')
       .replace('Execute', 'Exec')
       .trim();
 
-    setSelectedTask({
-      taskId,
-      operatorFull,
-      operatorShort: opShort,
-      state:         t.state ?? null,
-    });
-    setSqlResult(null);
-    setSqlError(null);
-    setSqlLoading(true);
-
     try {
       const result = await fetchTaskSql(currentEnv, currentDag, taskId);
-      setSqlResult(result);
+
+      await storeSqlViewerData({
+        taskId,
+        operatorFull,
+        operatorShort: opShort,
+        state:         t?.state ?? null,
+        dagId:         currentDag,
+        dagMeta:       dagMeta
+          ? {
+              schedule_interval: dagMeta.schedule_interval,
+              last_run_state:    dagMeta.last_run_state,
+              last_run_start:    dagMeta.last_run_start,
+              is_paused:         dagMeta.is_paused,
+            }
+          : null,
+        sql:      result.sql,
+        source:   result.source,
+        loadedAt: new Date().toISOString(),
+      });
+
+      openSqlViewerTab();
     } catch (e) {
-      setSqlError((e as Error).message);
+      setFetchError(`Failed to fetch SQL for "${taskId}": ${(e as Error).message}`);
     } finally {
-      setSqlLoading(false);
+      setFetchingTaskId(null);
     }
-  }, [tasks, currentEnv, currentDag]);
+  }, [tasks, currentEnv, currentDag, dagMeta, fetchingTaskId]);
 
-  const handleClosePanel = useCallback(() => {
-    setSelectedTask(null);
-    setSqlResult(null);
-    setSqlError(null);
-  }, []);
+  // ── Render ────────────────────────────────────────────────────────────────
 
-  // ── Empty state helper ───────────────────────────────────────────────────────
-
-  const showEmptyGraph = !dagLoading && !dagError && tasks.length === 0;
-  const showGraph      = tasks.length > 0;
-  const panelOpen      = !!selectedTask;
+  const showGraph     = tasks.length > 0;
+  const showEmpty     = !dagLoading && !dagError && !showGraph;
 
   return (
     <div style={appStyle}>
@@ -105,57 +125,50 @@ export default function App() {
         error={dagError}
       />
 
-      {/* ── Main canvas area ──────────────────────────────────────────────── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-        {/* Graph */}
-        <div style={{
-          flex:       panelOpen ? '0 0 55%' : '1',
-          minHeight:  120,
-          overflow:   'hidden',
-          transition: 'flex 0.25s ease',
-        }}>
-          {dagLoading && <LoadingOverlay message="Loading DAG structure…" />}
-
-          {showEmptyGraph && (
-            <EmptyState
-              hasError={false}
-              message="Enter a DAG ID above and click Load DAG."
-            />
+      {/* ── Task fetch status bar ───────────────────────────────────────── */}
+      {(fetchingTaskId || fetchError) && (
+        <div style={fetchingTaskId ? fetchingBar : errorBar}>
+          {fetchingTaskId && (
+            <>
+              <div style={miniSpinner} />
+              Fetching SQL for <strong style={{ marginLeft: 4 }}>{fetchingTaskId}</strong>…
+            </>
           )}
-
-          {showGraph && (
-            <DagGraph
-              tasks={tasks}
-              onTaskClick={handleTaskClick}
-              selectedTaskId={selectedTask?.taskId ?? null}
-            />
+          {fetchError && (
+            <>
+              ⚠ {fetchError}
+              <button
+                onClick={() => setFetchError(null)}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}
+              >✕</button>
+            </>
           )}
         </div>
+      )}
 
-        {/* SQL panel */}
-        {panelOpen && (
-          <SqlViewer
-            task={selectedTask}
-            sqlResult={sqlResult}
-            loading={sqlLoading}
-            error={sqlError}
-            lastRunStart={dagMeta?.last_run_start ?? null}
-            lastRunState={dagMeta?.last_run_state ?? null}
-            onClose={handleClosePanel}
+      {/* ── Graph canvas ────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {dagLoading && <LoadingOverlay message="Loading DAG structure…" />}
+
+        {showEmpty && (
+          <EmptyState message="Enter a DAG ID above and click Load DAG." />
+        )}
+
+        {showGraph && (
+          <DagGraph
+            tasks={tasks}
+            onTaskClick={handleTaskClick}
+            selectedTaskId={fetchingTaskId}
           />
         )}
-
-        {/* Hint bar */}
-        {showGraph && !panelOpen && (
-          <div style={hintBar}>
-            Click any task block to inspect its rendered SQL.
-            <span style={{ marginLeft: 8, opacity: 0.6 }}>
-              Drag to pan · Scroll to zoom · Fit View in controls
-            </span>
-          </div>
-        )}
       </div>
+
+      {showGraph && !fetchingTaskId && (
+        <div style={hintBar}>
+          Click any task block to open its rendered SQL in a new tab.
+          <span style={{ marginLeft: 8, opacity: 0.6 }}>Drag to pan · Scroll to zoom</span>
+        </div>
+      )}
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
     </div>
@@ -166,29 +179,21 @@ export default function App() {
 
 function LoadingOverlay({ message }: { message: string }) {
   return (
-    <div style={overlayStyle}>
-      <div style={spinner} />
+    <div style={centeredStyle}>
+      <div style={spinnerStyle} />
       <span style={{ color: '#64748B', fontSize: 13, marginTop: 12 }}>{message}</span>
     </div>
   );
 }
 
-function EmptyState({ message }: { hasError: boolean; message: string }) {
+function EmptyState({ message }: { message: string }) {
   return (
-    <div style={overlayStyle}>
+    <div style={centeredStyle}>
       <div style={{
-        width:        60,
-        height:       60,
-        borderRadius: '50%',
-        background:   '#EEF2FF',
-        display:      'flex',
-        alignItems:   'center',
-        justifyContent:'center',
-        fontSize:     26,
-        marginBottom: 12,
-      }}>
-        🔍
-      </div>
+        width: 56, height: 56, borderRadius: '50%', background: '#EEF2FF',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 24, marginBottom: 12,
+      }}>🔍</div>
       <span style={{ color: '#64748B', fontSize: 13, textAlign: 'center', maxWidth: 320 }}>
         {message}
       </span>
@@ -199,37 +204,42 @@ function EmptyState({ message }: { hasError: boolean; message: string }) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const appStyle: React.CSSProperties = {
-  display:        'flex',
-  flexDirection:  'column',
-  height:         '100vh',
-  overflow:       'hidden',
-  background:     '#F0F4F8',
-  fontFamily:     'Inter, system-ui, -apple-system, sans-serif',
+  display: 'flex', flexDirection: 'column', height: '100vh',
+  overflow: 'hidden', background: '#F0F4F8',
+  fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
 };
 
-const overlayStyle: React.CSSProperties = {
-  display:        'flex',
-  flexDirection:  'column',
-  alignItems:     'center',
-  justifyContent: 'center',
-  height:         '100%',
-  background:     '#F0F4F8',
+const fetchingBar: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '7px 20px', background: '#EEF2FF',
+  borderBottom: '1px solid #C7D2FE', fontSize: 12, color: '#3730A3', flexShrink: 0,
 };
 
-const spinner: React.CSSProperties = {
-  width:        32,
-  height:       32,
-  border:       '3px solid #E2E8F0',
-  borderTop:    '3px solid #6366F1',
-  borderRadius: '50%',
-  animation:    'spin 0.7s linear infinite',
+const errorBar: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '7px 20px', background: '#FEF2F2',
+  borderBottom: '1px solid #FECACA', fontSize: 12, color: '#B91C1C', flexShrink: 0,
 };
 
 const hintBar: React.CSSProperties = {
-  padding:      '7px 20px',
-  fontSize:     11,
-  color:        '#94A3B8',
-  background:   '#fff',
-  borderTop:    '1px solid #E2E8F0',
-  flexShrink:   0,
+  padding: '7px 20px', fontSize: 11, color: '#94A3B8',
+  background: '#fff', borderTop: '1px solid #E2E8F0', flexShrink: 0,
+};
+
+const centeredStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column',
+  alignItems: 'center', justifyContent: 'center',
+  height: '100%', background: '#F0F4F8',
+};
+
+const spinnerStyle: React.CSSProperties = {
+  width: 32, height: 32, border: '3px solid #E2E8F0',
+  borderTop: '3px solid #6366F1', borderRadius: '50%',
+  animation: 'spin 0.7s linear infinite',
+};
+
+const miniSpinner: React.CSSProperties = {
+  width: 14, height: 14, border: '2px solid #C7D2FE',
+  borderTop: '2px solid #6366F1', borderRadius: '50%',
+  animation: 'spin 0.7s linear infinite', flexShrink: 0,
 };
