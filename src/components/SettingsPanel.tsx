@@ -35,12 +35,12 @@ async function loadVertexLocal(): Promise<{ serviceAccountJson: string; vertexMo
     );
     return {
       serviceAccountJson: local.serviceAccountJson ?? '',
-      vertexModel:        sync.vertexModel        ?? 'gemini-2.0-flash-001',
+      vertexModel:        sync.vertexModel        ?? 'gemini-2.5-pro',
       vertexRegion:       sync.vertexRegion        ?? 'us-central1',
       vertexProjectId:    sync.vertexProjectId     ?? '',
     };
   }
-  return { serviceAccountJson: '', vertexModel: 'gemini-2.0-flash-001', vertexRegion: 'us-central1', vertexProjectId: '' };
+  return { serviceAccountJson: '', vertexModel: 'gemini-2.5-pro', vertexRegion: 'us-central1', vertexProjectId: '' };
 }
 
 async function saveVertexSettings(saJson: string, model: string, region: string, projectId: string): Promise<void> {
@@ -104,7 +104,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   // Vertex AI
   const [saJson,       setSaJson]       = useState('');
   const [saFileName,   setSaFileName]   = useState('');
-  const [vertexModel,  setVertexModel]  = useState('gemini-2.0-flash-001');
+  const [vertexModel,  setVertexModel]  = useState('gemini-2.5-pro');
   const [vertexRegion, setVertexRegion] = useState('us-central1');
   const [vertexProject,setVertexProject]= useState('');
   const [vertexSaved,  setVertexSaved]  = useState(false);
