@@ -29,12 +29,13 @@ export const STATE_ICONS: Record<string, string> = {
 const FAIL_STATES = new Set(['failed', 'upstream_failed']);
 
 function TaskNode({ data, selected }: NodeProps) {
-  const d       = data as TaskNodeData;
-  const color   = STATE_COLORS[d.state ?? ''] ?? STATE_COLORS._default;
-  const icon    = d.state ? STATE_ICONS[d.state] ?? '◆' : null;
-  const isFail  = FAIL_STATES.has(d.state ?? '');
+  const d          = data as TaskNodeData;
+  const isPending  = d.isActiveRun && !d.state;  // queued run, task not yet scheduled
+  const color      = isPending ? '#CBD5E1' : (STATE_COLORS[d.state ?? ''] ?? STATE_COLORS._default);
+  const icon       = d.state ? STATE_ICONS[d.state] ?? '◆' : null;
+  const isFail     = FAIL_STATES.has(d.state ?? '');
 
-  // Failed tasks: light-red card with red accent border; everything else: solid colour card
+  // Failed: light-red card; pending (active run, no state yet): light-grey card; else: solid colour
   const cardStyle: React.CSSProperties = isFail ? {
     background:   '#FFF5F5',
     border:       selected ? '2px solid #EF4444' : '1.5px solid #FECACA',
@@ -49,7 +50,22 @@ function TaskNode({ data, selected }: NodeProps) {
       ? '0 0 0 3px rgba(239,68,68,0.22), 0 4px 16px rgba(0,0,0,0.14)'
       : '0 2px 10px rgba(239,68,68,0.18)',
     cursor:       'pointer',
-    transition:   'box-shadow 0.15s ease',
+    transition:   'box-shadow 0.15s ease, background 0.3s ease',
+    userSelect:   'none',
+  } : isPending ? {
+    background:   '#F1F5F9',
+    border:       selected ? '2px solid #94A3B8' : '1.5px solid #CBD5E1',
+    borderRadius: 10,
+    padding:      '10px 14px',
+    minWidth:     175,
+    maxWidth:     230,
+    color:        '#64748B',
+    fontFamily:   'Inter, system-ui, sans-serif',
+    boxShadow:    selected
+      ? '0 0 0 3px rgba(148,163,184,0.3), 0 4px 16px rgba(0,0,0,0.1)'
+      : '0 2px 8px rgba(0,0,0,0.08)',
+    cursor:       'pointer',
+    transition:   'box-shadow 0.15s ease, background 0.3s ease',
     userSelect:   'none',
   } : {
     background:   color,
@@ -64,11 +80,11 @@ function TaskNode({ data, selected }: NodeProps) {
       ? `0 0 0 3px ${color}66, 0 4px 16px rgba(0,0,0,0.35)`
       : '0 2px 10px rgba(0,0,0,0.22)',
     cursor:       'pointer',
-    transition:   'box-shadow 0.15s ease',
+    transition:   'box-shadow 0.15s ease, background 0.3s ease',
     userSelect:   'none',
   };
 
-  const handleColor = isFail ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.6)';
+  const handleColor = isFail ? 'rgba(239,68,68,0.5)' : isPending ? '#94A3B8' : 'rgba(255,255,255,0.6)';
 
   const badgeStyle: React.CSSProperties = isFail ? {
     marginTop:     6,

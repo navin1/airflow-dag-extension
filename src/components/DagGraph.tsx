@@ -90,9 +90,10 @@ interface DagGraphProps {
   tasks: AirflowTask[];
   onTaskClick: (taskId: string, operatorFull: string) => void;
   selectedTaskId: string | null;
+  isRunning?: boolean;
 }
 
-export default function DagGraph({ tasks, onTaskClick, selectedTaskId }: DagGraphProps) {
+export default function DagGraph({ tasks, onTaskClick, selectedTaskId, isRunning }: DagGraphProps) {
   const { nodes: rawNodes, edges: rawEdges } = useMemo(() => buildGraph(tasks), [tasks]);
   const layouted = useMemo(() => layoutNodes(rawNodes, rawEdges), [rawNodes, rawEdges]);
 
@@ -112,16 +113,20 @@ export default function DagGraph({ tasks, onTaskClick, selectedTaskId }: DagGrap
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layouted.length]);
 
-  // Update node data (state colours) whenever task states change — no layout re-run
+  // Update node data (state colours) whenever task states or run activity changes — no layout re-run
   useEffect(() => {
     if (!tasks.length) return;
     const stateMap = new Map(tasks.map(t => [t.task_id, t.state ?? null]));
     setNodes(prev => prev.map(n => ({
       ...n,
-      data: { ...(n.data as TaskNodeData), state: stateMap.get(n.id) ?? null },
+      data: {
+        ...(n.data as TaskNodeData),
+        state:        stateMap.get(n.id) ?? null,
+        isActiveRun:  isRunning ?? false,
+      },
     })));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks]);
+  }, [tasks, isRunning]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {

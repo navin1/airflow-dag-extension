@@ -62,4 +62,5 @@ export interface TaskNodeData extends Record<string, unknown> {
   operatorShort: string;
   state: TaskState;
   durationSeconds?: number;
+  isActiveRun?: boolean;  // true while the DAG run is queued/running — unstarted tasks show grey
 }

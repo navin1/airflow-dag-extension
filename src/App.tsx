@@ -4,7 +4,7 @@ import DagExplorer   from './components/DagExplorer';
 import DagGraph      from './components/DagGraph';
 import SettingsPanel from './components/SettingsPanel';
 
-import { loadDag, fetchRecentRuns, fetchTaskSql, fetchTaskStates, triggerDagRun, fetchRunState } from './utils/airflow';
+import { loadDag, fetchRecentRuns, fetchTaskSql, fetchTaskStates, triggerDagRun } from './utils/airflow';
 import type { AirflowTask, DagMeta, DagRun } from './types';
 
 // ── Storage helper ────────────────────────────────────────────────────────────
@@ -48,15 +48,16 @@ export default function App() {
   const [fetchingTaskId, setFetchingTaskId] = useState<string | null>(null);
   const [fetchError,     setFetchError]     = useState<string | null>(null);
 
-  // Trigger + live polling
-  const [triggering,    setTriggering]    = useState(false);
-  const pollIntervalRef                   = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollingRunIdRef                   = useRef<string | null>(null);
+  // Trigger state
+  const [triggering, setTriggering] = useState(false);
+
+  // Ref always holds the latest selectedRunId so the poll closure can read it without restarting
+  const selectedRunIdRef = useRef<string | null>(null);
+  useEffect(() => { selectedRunIdRef.current = selectedRunId; }, [selectedRunId]);
 
   // ── Load DAG ──────────────────────────────────────────────────────────────
 
   const handleLoadDag = useCallback(async (envUrl: string, dagId: string) => {
-    stopPolling();
     setDagLoading(true);
     setDagError(null);
     setTasks([]);
@@ -111,41 +112,61 @@ export default function App() {
     }
   }, [currentEnv, currentDag]);
 
-  // ── Live polling ──────────────────────────────────────────────────────────
+  // ── Always-on adaptive poll ───────────────────────────────────────────────
+  // Runs continuously while a DAG is loaded.
+  // Fast (5 s) when the selected run is active, slow (30 s) when idle.
+  // Updates recentRuns, dagMeta last-run fields, and task node colours.
 
-  const stopPolling = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    pollingRunIdRef.current = null;
-  }, []);
-
-  const startPolling = useCallback((envUrl: string, dagId: string, runId: string) => {
-    stopPolling();
-    pollingRunIdRef.current = runId;
+  useEffect(() => {
+    if (!currentEnv || !currentDag) return;
 
     const TERMINAL = new Set(['success', 'failed', 'skipped', 'upstream_failed']);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let cancelled = false;
 
     const poll = async () => {
-      if (pollingRunIdRef.current !== runId) return;
+      if (cancelled) return;
+      let nextDelay = 30_000;
       try {
-        const [stateMap, runState] = await Promise.all([
-          fetchTaskStates(envUrl, dagId, runId),
-          fetchRunState(envUrl, dagId, runId),
-        ]);
-        setTasks(prev => prev.map(t => ({ ...t, state: stateMap.get(t.task_id) ?? t.state })));
-        setRecentRuns(prev => prev.map(r => r.run_id === runId ? { ...r, state: runState } : r));
-        if (TERMINAL.has(runState)) stopPolling();
-      } catch { /* non-fatal */ }
+        const runs = await fetchRecentRuns(currentEnv, currentDag, 5);
+        if (cancelled) return;
+
+        setRecentRuns(runs);
+
+        // Keep dagMeta last-run fields in sync without a separate API call
+        setDagMeta(prev => {
+          if (!prev) return prev;
+          const latest = runs[0];
+          const latestSuccess = runs.find(r => r.state === 'success');
+          return {
+            ...prev,
+            last_run_id:         latest?.run_id        ?? prev.last_run_id,
+            last_run_state:      latest?.state         ?? prev.last_run_state,
+            last_run_start:      latest?.start_date    ?? prev.last_run_start,
+            last_success_run_id: latestSuccess?.run_id ?? prev.last_success_run_id,
+          };
+        });
+
+        // If the selected (or latest) run is active, fetch live task states
+        const watchId  = selectedRunIdRef.current ?? runs[0]?.run_id;
+        const watchRun = runs.find(r => r.run_id === watchId);
+        const isActive = !!watchRun && !TERMINAL.has(watchRun.state) && watchRun.state !== '';
+
+        if (watchId && isActive) {
+          nextDelay = 5_000;
+          const stateMap = await fetchTaskStates(currentEnv, currentDag, watchId);
+          if (cancelled) return;
+          setTasks(prev => prev.map(t => ({ ...t, state: stateMap.get(t.task_id) ?? t.state })));
+        }
+      } catch { /* non-fatal — retry at next interval */ }
+
+      if (!cancelled) timeoutId = setTimeout(poll, nextDelay);
     };
 
-    poll();
-    pollIntervalRef.current = setInterval(poll, 5000);
-  }, [stopPolling]);
-
-  // Stop polling when DAG is reloaded
-  useEffect(() => () => stopPolling(), [stopPolling]);
+    // First poll after the initial load settles
+    timeoutId = setTimeout(poll, 5_000);
+    return () => { cancelled = true; clearTimeout(timeoutId); };
+  }, [currentEnv, currentDag]);
 
   // ── Trigger DAG run ───────────────────────────────────────────────────────
 
@@ -157,13 +178,14 @@ export default function App() {
       const newRun = { run_id, state: 'queued', execution_date, start_date: null };
       setRecentRuns(prev => [newRun, ...prev]);
       setSelectedRunId(run_id);
-      startPolling(currentEnv, currentDag, run_id);
+      // Immediately reset all task states to null so nodes go grey right away
+      setTasks(prev => prev.map(t => ({ ...t, state: null })));
     } catch (e) {
       setFetchError(`Trigger failed: ${(e as Error).message}`);
     } finally {
       setTriggering(false);
     }
-  }, [currentEnv, currentDag, triggering, startPolling]);
+  }, [currentEnv, currentDag, triggering]);
 
   // ── Task click → fetch SQL → store → open new tab ─────────────────────────
 
@@ -296,6 +318,7 @@ export default function App() {
             tasks={tasks}
             onTaskClick={handleTaskClick}
             selectedTaskId={fetchingTaskId}
+            isRunning={isRunning}
           />
         )}
       </div>
