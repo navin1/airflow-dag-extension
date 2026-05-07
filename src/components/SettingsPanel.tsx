@@ -25,29 +25,30 @@ async function saveSettings(patch: Partial<Settings>): Promise<void> {
   localStorage.setItem('adv_settings', JSON.stringify({ ...cur, ...patch }));
 }
 
-async function loadVertexLocal(): Promise<{ serviceAccountJson: string; vertexModel: string; vertexRegion: string; vertexProjectId: string }> {
+async function loadVertexLocal(): Promise<{ serviceAccountJson: string; vertexModel: string; vertexRegion: string; vertexProjectId: string; vertexAuthMode: 'json' | 'account' }> {
   if (typeof chrome !== 'undefined' && chrome.storage) {
     const local = await new Promise<Record<string, string>>(r =>
       chrome.storage.local.get(['serviceAccountJson'], v => r(v as Record<string, string>)),
     );
     const sync = await new Promise<Record<string, string>>(r =>
-      chrome.storage.sync.get(['vertexModel', 'vertexRegion', 'vertexProjectId'], v => r(v as Record<string, string>)),
+      chrome.storage.sync.get(['vertexModel', 'vertexRegion', 'vertexProjectId', 'vertexAuthMode'], v => r(v as Record<string, string>)),
     );
     return {
       serviceAccountJson: local.serviceAccountJson ?? '',
-      vertexModel:        sync.vertexModel        ?? 'gemini-2.5-pro',
-      vertexRegion:       sync.vertexRegion        ?? 'us-central1',
-      vertexProjectId:    sync.vertexProjectId     ?? '',
+      vertexModel:        sync.vertexModel         ?? 'gemini-2.5-pro',
+      vertexRegion:       sync.vertexRegion         ?? 'us-central1',
+      vertexProjectId:    sync.vertexProjectId      ?? '',
+      vertexAuthMode:    (sync.vertexAuthMode as 'json' | 'account') ?? 'json',
     };
   }
-  return { serviceAccountJson: '', vertexModel: 'gemini-2.5-pro', vertexRegion: 'us-central1', vertexProjectId: '' };
+  return { serviceAccountJson: '', vertexModel: 'gemini-2.5-pro', vertexRegion: 'us-central1', vertexProjectId: '', vertexAuthMode: 'json' };
 }
 
-async function saveVertexSettings(saJson: string, model: string, region: string, projectId: string): Promise<void> {
+async function saveVertexSettings(saJson: string, model: string, region: string, projectId: string, authMode: 'json' | 'account'): Promise<void> {
   if (typeof chrome !== 'undefined' && chrome.storage) {
     await Promise.all([
       new Promise<void>(r => chrome.storage.local.set({ serviceAccountJson: saJson }, r)),
-      new Promise<void>(r => chrome.storage.sync.set({ vertexModel: model, vertexRegion: region, vertexProjectId: projectId }, r)),
+      new Promise<void>(r => chrome.storage.sync.set({ vertexModel: model, vertexRegion: region, vertexProjectId: projectId, vertexAuthMode: authMode }, r)),
     ]);
     return;
   }
@@ -102,12 +103,13 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [authSaved,     setAuthSaved]     = useState(false);
 
   // Vertex AI
-  const [saJson,       setSaJson]       = useState('');
-  const [saFileName,   setSaFileName]   = useState('');
-  const [vertexModel,  setVertexModel]  = useState('gemini-2.5-pro');
-  const [vertexRegion, setVertexRegion] = useState('us-central1');
-  const [vertexProject,setVertexProject]= useState('');
-  const [vertexSaved,  setVertexSaved]  = useState(false);
+  const [saJson,        setSaJson]        = useState('');
+  const [saFileName,    setSaFileName]    = useState('');
+  const [vertexModel,   setVertexModel]   = useState('gemini-2.5-pro');
+  const [vertexRegion,  setVertexRegion]  = useState('us-central1');
+  const [vertexProject, setVertexProject] = useState('');
+  const [vertexAuthMode,setVertexAuthMode]= useState<'json' | 'account'>('json');
+  const [vertexSaved,   setVertexSaved]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -122,6 +124,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       setVertexModel(v.vertexModel);
       setVertexRegion(v.vertexRegion);
       setVertexProject(v.vertexProjectId);
+      setVertexAuthMode(v.vertexAuthMode);
       if (v.serviceAccountJson) {
         try {
           const parsed = JSON.parse(v.serviceAccountJson);
@@ -169,7 +172,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   const handleSaveVertex = async () => {
-    await saveVertexSettings(saJson, vertexModel, vertexRegion, vertexProject);
+    await saveVertexSettings(saJson, vertexModel, vertexRegion, vertexProject, vertexAuthMode);
     setVertexSaved(true);
     setTimeout(() => setVertexSaved(false), 2000);
   };
@@ -271,33 +274,55 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           {/* ── Vertex AI ────────────────────────────────────────────────── */}
           <section style={section}>
             <div style={sectionTitle}><ChevronRight size={14} style={{ marginRight: 4 }} />Vertex AI (SQL Optimization)</div>
-            <p style={helpText}>
-              Used for BigQuery SQL optimization in the SQL viewer. Requires a GCP service account with
-              <strong> Vertex AI User</strong> role.
-            </p>
 
-            {/* Service account JSON upload */}
-            <label style={labelStyle}>Service account JSON key</label>
-            <div style={uploadZone} onClick={() => fileRef.current?.click()}>
-              <Upload size={16} color="#6366F1" />
-              <span style={{ fontSize: 12, color: '#64748B' }}>
-                {saFileName ? saFileName : 'Click to upload JSON key file'}
-              </span>
-              {saFileName && <CheckCheck size={14} color="#10B981" style={{ marginLeft: 'auto' }} />}
+            {/* Auth mode toggle */}
+            <label style={labelStyle}>Credential source</label>
+            <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderRadius: 7, overflow: 'hidden', border: '1px solid #E2E8F0' }}>
+              {(['json', 'account'] as const).map(mode => (
+                <button key={mode} onClick={() => setVertexAuthMode(mode)} style={{
+                  flex: 1, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+                  background: vertexAuthMode === mode ? '#6366F1' : '#F8FAFC',
+                  color:      vertexAuthMode === mode ? '#fff'    : '#64748B',
+                }}>
+                  {mode === 'json' ? 'Service Account JSON' : 'Account Identity'}
+                </button>
+              ))}
             </div>
-            <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFileUpload} />
 
-            {/* Or paste JSON */}
-            <details style={{ marginTop: 8 }}>
-              <summary style={{ fontSize: 11, color: '#6366F1', cursor: 'pointer' }}>Or paste JSON text</summary>
-              <textarea
-                value={saJson}
-                onChange={e => setSaJson(e.target.value)}
-                placeholder='{"type":"service_account","project_id":"…"}'
-                rows={5}
-                style={{ ...inputStyle, fontFamily: 'monospace', fontSize: 10, marginTop: 6, resize: 'vertical' }}
-              />
-            </details>
+            {vertexAuthMode === 'json' ? (
+              <>
+                <p style={helpText}>
+                  Service account must have <strong>Vertex AI User</strong> role. Project ID is auto-detected from the JSON.
+                </p>
+
+                <label style={labelStyle}>Service account JSON key</label>
+                <div style={uploadZone} onClick={() => fileRef.current?.click()}>
+                  <Upload size={16} color="#6366F1" />
+                  <span style={{ fontSize: 12, color: '#64748B' }}>
+                    {saFileName ? saFileName : 'Click to upload JSON key file'}
+                  </span>
+                  {saFileName && <CheckCheck size={14} color="#10B981" style={{ marginLeft: 'auto' }} />}
+                </div>
+                <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFileUpload} />
+
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ fontSize: 11, color: '#6366F1', cursor: 'pointer' }}>Or paste JSON text</summary>
+                  <textarea
+                    value={saJson}
+                    onChange={e => setSaJson(e.target.value)}
+                    placeholder='{"type":"service_account","project_id":"…"}'
+                    rows={5}
+                    style={{ ...inputStyle, fontFamily: 'monospace', fontSize: 10, marginTop: 6, resize: 'vertical' }}
+                  />
+                </details>
+              </>
+            ) : (
+              <p style={helpText}>
+                Reuses the OAuth / manual token configured in <strong>Authentication</strong> above.
+                Your GCP account must have <strong>Vertex AI User</strong> access on the project.
+                No JSON key required.
+              </p>
+            )}
 
             {/* Model */}
             <label style={{ ...labelStyle, marginTop: 10 }}>Model</label>
@@ -313,8 +338,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
             {/* Project ID */}
             <label style={{ ...labelStyle, marginTop: 10 }}>Project ID</label>
-            <input value={vertexProject} onChange={e => setVertexProject(e.target.value)}
-              placeholder="Auto-detected from JSON" style={inputStyle} />
+            <input
+              value={vertexProject}
+              onChange={e => setVertexProject(e.target.value)}
+              placeholder={vertexAuthMode === 'json' ? 'Auto-detected from JSON' : 'your-gcp-project-id'}
+              style={inputStyle}
+            />
 
             <button onClick={handleSaveVertex} style={{ ...primaryBtn(true), marginTop: 4 }}>
               {vertexSaved ? <><CheckCheck size={13} /> Saved</> : 'Save Vertex AI settings'}

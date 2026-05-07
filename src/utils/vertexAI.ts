@@ -5,11 +5,13 @@
  */
 
 import { getVertexToken, loadServiceAccount } from './jwtAuth';
+import { getToken } from './auth';
 
 export interface VertexSettings {
   model:     string;
   region:    string;
   projectId: string;
+  authMode:  'json' | 'account';
 }
 
 // ── Storage helper ────────────────────────────────────────────────────────────
@@ -19,34 +21,38 @@ export async function loadVertexSettings(): Promise<VertexSettings> {
     model:     'gemini-2.0-flash-001',
     region:    'us-central1',
     projectId: '',
+    authMode:  'json',
   };
 
   if (typeof chrome === 'undefined' || !chrome.storage) return defaults;
 
   const stored = await new Promise<Record<string, string>>(r =>
-    chrome.storage.sync.get(['vertexModel', 'vertexRegion', 'vertexProjectId'], v =>
+    chrome.storage.sync.get(['vertexModel', 'vertexRegion', 'vertexProjectId', 'vertexAuthMode'], v =>
       r(v as Record<string, string>),
     ),
   );
 
-  // Fall back to project_id from the service account JSON
+  const authMode = (stored.vertexAuthMode ?? 'json') as 'json' | 'account';
+
+  // Fall back to project_id from the service account JSON only in json mode
   let projectId = stored.vertexProjectId ?? '';
-  if (!projectId) {
+  if (!projectId && authMode === 'json') {
     const sa = await loadServiceAccount();
     projectId = sa?.project_id ?? '';
   }
 
   return {
-    model:     stored.vertexModel     ?? defaults.model,
-    region:    stored.vertexRegion    ?? defaults.region,
-    projectId: projectId              || defaults.projectId,
+    model:     stored.vertexModel  ?? defaults.model,
+    region:    stored.vertexRegion ?? defaults.region,
+    projectId: projectId           || defaults.projectId,
+    authMode,
   };
 }
 
 // ── API call ──────────────────────────────────────────────────────────────────
 
 async function callGemini(prompt: string, settings: VertexSettings): Promise<string> {
-  const token    = await getVertexToken();
+  const token = settings.authMode === 'account' ? await getToken() : await getVertexToken();
   const endpoint = `https://${settings.region}-aiplatform.googleapis.com/v1/projects/${settings.projectId}/locations/${settings.region}/publishers/google/models/${settings.model}:generateContent`;
 
   const resp = await fetch(endpoint, {

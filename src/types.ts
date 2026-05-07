@@ -9,6 +9,7 @@ export interface Settings {
   manualToken: string;
   manualTokenExpiry: string; // ISO date string
   useManualToken: boolean;
+  vertexAuthMode: 'json' | 'account'; // 'json' = service account key; 'account' = reuse Airflow OAuth/manual token
 }
 
 export type TaskState =
