@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, RefreshCw, Pause, Play, CalendarClock } from 'lucide-react';
+import { Search, RefreshCw, Pause, Play, CalendarClock, PlayCircle, Loader } from 'lucide-react';
 import type { DagMeta, EnvConfig } from '../types';
 import { STATE_COLORS } from './TaskNode';
 
@@ -44,13 +44,16 @@ function formatDate(iso: string | null): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface DagExplorerProps {
-  onLoad:    (envUrl: string, dagId: string) => void;
-  loading:   boolean;
-  dagMeta:   DagMeta | null;
-  error:     string | null;
+  onLoad:      (envUrl: string, dagId: string) => void;
+  loading:     boolean;
+  dagMeta:     DagMeta | null;
+  error:       string | null;
+  onTrigger?:  () => void;
+  isRunning?:  boolean;
+  triggering?: boolean;
 }
 
-export default function DagExplorer({ onLoad, loading, dagMeta, error }: DagExplorerProps) {
+export default function DagExplorer({ onLoad, loading, dagMeta, error, onTrigger, isRunning, triggering }: DagExplorerProps) {
   const [envs,        setEnvs]        = useState<EnvConfig[]>([]);
   const [selectedEnv, setSelectedEnv] = useState('');
   const [dagId,       setDagId]       = useState('');
@@ -155,6 +158,27 @@ export default function DagExplorer({ onLoad, loading, dagMeta, error }: DagExpl
               ⚠ No successful run — SQL may not be available
             </div>
           )}
+
+          {/* ▶ Run button — pill when running/triggering, clickable otherwise */}
+          {isRunning || triggering ? (
+            <div style={{ ...metaPill, color: '#3B82F6', borderColor: '#BFDBFE' }}>
+              <Loader size={11} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>{triggering ? 'triggering…' : 'running…'}</span>
+            </div>
+          ) : (
+            onTrigger && (
+              <button
+                onClick={onTrigger}
+                title="Trigger a manual DAG run"
+                style={runPillBtn}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#EEF2FF'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fff'; }}
+              >
+                <PlayCircle size={11} />
+                <span>Run</span>
+              </button>
+            )
+          )}
         </div>
       )}
     </div>
@@ -244,6 +268,21 @@ const metaPill: React.CSSProperties = {
   border:       '1px solid #E2E8F0',
   borderRadius: 20,
   padding:      '3px 9px',
+};
+
+const runPillBtn: React.CSSProperties = {
+  display:      'inline-flex',
+  alignItems:   'center',
+  gap:          5,
+  fontSize:     11,
+  color:        '#6366F1',
+  background:   '#fff',
+  border:       '1px solid #C7D2FE',
+  borderRadius: 20,
+  padding:      '3px 9px',
+  cursor:       'pointer',
+  fontFamily:   'Inter, system-ui, sans-serif',
+  transition:   'background 0.15s',
 };
 
 const errorBar: React.CSSProperties = {

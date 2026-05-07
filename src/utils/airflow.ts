@@ -53,6 +53,36 @@ async function apiFetch(baseUrl: string, path: string, params?: Record<string, s
   return resp.json();
 }
 
+async function apiPost(baseUrl: string, path: string, body: unknown): Promise<unknown> {
+  let token: string;
+  try {
+    token = await getToken();
+  } catch (e) {
+    throw new Error(`Auth error: ${(e as Error).message}`);
+  }
+
+  const url = `${baseUrl.replace(/\/$/, '')}/api/v1${path}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (resp.status === 401) {
+    await invalidateCachedToken();
+    throw new Error('Authentication failed (401). Your token may have expired — re-authenticate in Settings.');
+  }
+  if (!resp.ok) {
+    const bodyText = await resp.text().catch(() => '');
+    throw new Error(`Airflow API error ${resp.status}: ${bodyText.slice(0, 200) || resp.statusText}`);
+  }
+
+  return resp.json();
+}
+
 // ── DAG metadata ──────────────────────────────────────────────────────────────
 
 export async function fetchDagMeta(baseUrl: string, dagId: string): Promise<DagMeta> {
@@ -161,6 +191,28 @@ export async function fetchRecentRuns(
     execution_date: String(r.execution_date ?? ''),
     start_date:     (r.start_date as string) ?? null,
   }));
+}
+
+// ── Trigger DAG run ───────────────────────────────────────────────────────────
+
+export async function triggerDagRun(
+  baseUrl: string,
+  dagId: string,
+): Promise<{ run_id: string; execution_date: string }> {
+  const data = await apiPost(baseUrl, `/dags/${enc(dagId)}/dagRuns`, {}) as Record<string, unknown>;
+  return {
+    run_id:         String(data.dag_run_id ?? ''),
+    execution_date: String(data.execution_date ?? new Date().toISOString()),
+  };
+}
+
+export async function fetchRunState(
+  baseUrl: string,
+  dagId: string,
+  runId: string,
+): Promise<string> {
+  const data = await apiFetch(baseUrl, `/dags/${enc(dagId)}/dagRuns/${enc(runId)}`) as Record<string, unknown>;
+  return String(data.state ?? 'unknown');
 }
 
 // ── Task SQL ──────────────────────────────────────────────────────────────────

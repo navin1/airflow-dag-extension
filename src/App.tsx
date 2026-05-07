@@ -1,10 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Header        from './components/Header';
 import DagExplorer   from './components/DagExplorer';
 import DagGraph      from './components/DagGraph';
 import SettingsPanel from './components/SettingsPanel';
 
-import { loadDag, fetchRecentRuns, fetchTaskSql, fetchTaskStates } from './utils/airflow';
+import { loadDag, fetchRecentRuns, fetchTaskSql, fetchTaskStates, triggerDagRun, fetchRunState } from './utils/airflow';
 import type { AirflowTask, DagMeta, DagRun } from './types';
 
 // ── Storage helper ────────────────────────────────────────────────────────────
@@ -48,9 +48,15 @@ export default function App() {
   const [fetchingTaskId, setFetchingTaskId] = useState<string | null>(null);
   const [fetchError,     setFetchError]     = useState<string | null>(null);
 
+  // Trigger + live polling
+  const [triggering,    setTriggering]    = useState(false);
+  const pollIntervalRef                   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRunIdRef                   = useRef<string | null>(null);
+
   // ── Load DAG ──────────────────────────────────────────────────────────────
 
   const handleLoadDag = useCallback(async (envUrl: string, dagId: string) => {
+    stopPolling();
     setDagLoading(true);
     setDagError(null);
     setTasks([]);
@@ -105,6 +111,60 @@ export default function App() {
     }
   }, [currentEnv, currentDag]);
 
+  // ── Live polling ──────────────────────────────────────────────────────────
+
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    pollingRunIdRef.current = null;
+  }, []);
+
+  const startPolling = useCallback((envUrl: string, dagId: string, runId: string) => {
+    stopPolling();
+    pollingRunIdRef.current = runId;
+
+    const TERMINAL = new Set(['success', 'failed', 'skipped', 'upstream_failed']);
+
+    const poll = async () => {
+      if (pollingRunIdRef.current !== runId) return;
+      try {
+        const [stateMap, runState] = await Promise.all([
+          fetchTaskStates(envUrl, dagId, runId),
+          fetchRunState(envUrl, dagId, runId),
+        ]);
+        setTasks(prev => prev.map(t => ({ ...t, state: stateMap.get(t.task_id) ?? t.state })));
+        setRecentRuns(prev => prev.map(r => r.run_id === runId ? { ...r, state: runState } : r));
+        if (TERMINAL.has(runState)) stopPolling();
+      } catch { /* non-fatal */ }
+    };
+
+    poll();
+    pollIntervalRef.current = setInterval(poll, 5000);
+  }, [stopPolling]);
+
+  // Stop polling when DAG is reloaded
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  // ── Trigger DAG run ───────────────────────────────────────────────────────
+
+  const handleTriggerRun = useCallback(async () => {
+    if (!currentEnv || !currentDag || triggering) return;
+    setTriggering(true);
+    try {
+      const { run_id, execution_date } = await triggerDagRun(currentEnv, currentDag);
+      const newRun = { run_id, state: 'queued', execution_date, start_date: null };
+      setRecentRuns(prev => [newRun, ...prev]);
+      setSelectedRunId(run_id);
+      startPolling(currentEnv, currentDag, run_id);
+    } catch (e) {
+      setFetchError(`Trigger failed: ${(e as Error).message}`);
+    } finally {
+      setTriggering(false);
+    }
+  }, [currentEnv, currentDag, triggering, startPolling]);
+
   // ── Task click → fetch SQL → store → open new tab ─────────────────────────
 
   const handleTaskClick = useCallback(async (taskId: string, operatorFull: string) => {
@@ -153,8 +213,12 @@ export default function App() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const showGraph     = tasks.length > 0;
-  const showEmpty     = !dagLoading && !dagError && !showGraph;
+  const showGraph = tasks.length > 0;
+  const showEmpty = !dagLoading && !dagError && !showGraph;
+
+  const TERMINAL_STATES = new Set(['success', 'failed', 'skipped', 'upstream_failed']);
+  const activeRun = recentRuns.find(r => r.run_id === selectedRunId);
+  const isRunning = !!activeRun && !TERMINAL_STATES.has(activeRun.state) && activeRun.state !== '';
 
   return (
     <div style={appStyle}>
@@ -165,6 +229,9 @@ export default function App() {
         loading={dagLoading}
         dagMeta={dagMeta}
         error={dagError}
+        onTrigger={dagMeta ? handleTriggerRun : undefined}
+        isRunning={isRunning}
+        triggering={triggering}
       />
 
       {/* ── Run selector bar ────────────────────────────────────────────── */}
