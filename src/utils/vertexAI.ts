@@ -18,7 +18,7 @@ export interface VertexSettings {
 
 export async function loadVertexSettings(): Promise<VertexSettings> {
   const defaults: VertexSettings = {
-    model:     'gemini-2.0-flash-001',
+    model:     'gemini-2.5-pro',
     region:    'us-central1',
     projectId: '',
     authMode:  'json',
@@ -65,7 +65,7 @@ async function callGemini(prompt: string, settings: VertexSettings): Promise<str
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature:     0.1,   // low temperature for deterministic SQL
-        maxOutputTokens: 8192,
+        maxOutputTokens: 65536,
         topP:            0.8,
       },
     }),
