@@ -77,7 +77,8 @@ export default function App() {
       try {
         const runs = await fetchRecentRuns(envUrl, dagId, 5);
         setRecentRuns(runs);
-        const defaultRun = runs.find(r => r.state === 'success') ?? runs[0] ?? null;
+        const activeRun = runs.find(r => !['success','failed','skipped','upstream_failed'].includes(r.state) && r.state !== '');
+        const defaultRun = activeRun ?? runs.find(r => r.state === 'success') ?? runs[0] ?? null;
         if (defaultRun) {
           setSelectedRunId(defaultRun.run_id);
           // Overwrite states that loadDag set (which used last_run_id, possibly a different run)
@@ -147,13 +148,18 @@ export default function App() {
           };
         });
 
-        // If the selected (or latest) run is active, fetch live task states
-        const watchId  = selectedRunIdRef.current ?? runs[0]?.run_id;
+        // Always prefer the latest active run for live polling; auto-switch selected run to it
+        const latestActive = runs.find(r => !TERMINAL.has(r.state) && r.state !== '');
+        const watchId = latestActive?.run_id ?? selectedRunIdRef.current ?? runs[0]?.run_id;
         const watchRun = runs.find(r => r.run_id === watchId);
         const isActive = !!watchRun && !TERMINAL.has(watchRun.state) && watchRun.state !== '';
 
         if (watchId && isActive) {
           nextDelay = 5_000;
+          if (latestActive && latestActive.run_id !== selectedRunIdRef.current) {
+            setSelectedRunId(latestActive.run_id);
+            setTasks(prev => prev.map(t => ({ ...t, state: null })));
+          }
           const stateMap = await fetchTaskStates(currentEnv, currentDag, watchId);
           if (cancelled) return;
           setTasks(prev => prev.map(t => ({ ...t, state: stateMap.get(t.task_id) ?? t.state })));
