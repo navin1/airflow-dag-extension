@@ -14,7 +14,11 @@ import {
 } from 'lucide-react';
 
 import DiffViewer from './DiffViewer';
-import { optimizeSql } from '../utils/vertexAI';
+import { optimizeSql, loadVertexSettings } from '../utils/vertexAI';
+import {
+  extractTableRefs, fetchTableDdls, fetchTableSizes,
+  dryRunQuery, schemasEqual, formatBytes,
+} from '../utils/bigQuerySchema';
 import { STATE_COLORS, STATE_ICONS } from '../components/TaskNode';
 import {
   THEMES, THEME_KEYS, DEFAULT_THEME,
@@ -155,7 +159,10 @@ export default function SqlViewerPage() {
   const [showDiff,      setShowDiff]      = useState(false);
   const [optimizedSql,  setOptimizedSql]  = useState<string | null>(null);
   const [optimizing,    setOptimizing]    = useState(false);
+  const [optimizePhase, setOptimizePhase] = useState<'schema' | 'optimize' | 'verify' | null>(null);
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
+  const [costDelta,     setCostDelta]     = useState<{ before: number; after: number } | null>(null);
+  const [schemaWarning, setSchemaWarning] = useState<string | null>(null);
   const [themeKey,      setThemeKey]      = useState(DEFAULT_THEME);
 
   const codeRef = useRef<HTMLElement>(null);
@@ -186,12 +193,48 @@ export default function SqlViewerPage() {
   const handleOptimize = async () => {
     if (!data?.sql) return;
     setOptimizing(true); setOptimizeError(null); setShowDiff(false);
+    setCostDelta(null); setSchemaWarning(null);
     try {
-      const result = await optimizeSql(data.sql);
+      setOptimizePhase('schema');
+      const settings = await loadVertexSettings();
+
+      // Dry-run the original query first: it's free (no execution, no bytes
+      // billed) and gives BigQuery's own resolved table list + bytes estimate,
+      // which is more reliable than regex-parsing FROM/JOIN clauses.
+      const before = await dryRunQuery(data.sql, settings);
+      const refs = before.referencedTables.length ? before.referencedTables : extractTableRefs(data.sql);
+
+      // Schema + size lookups are best-effort — missing permissions or an
+      // unresolved project shouldn't block optimization, just proceed without them.
+      const [{ ddl }, { sizeInfo }] = await Promise.all([
+        fetchTableDdls(refs, settings).catch(() => ({ ddl: '', warnings: [] })),
+        fetchTableSizes(refs, settings).catch(() => ({ sizeInfo: '', warnings: [] })),
+      ]);
+      const schemaContext = [ddl, sizeInfo].filter(Boolean).join('\n\n');
+      const costDiagnostics = before.error
+        ? undefined
+        : `Estimated bytes scanned by the current query: ${formatBytes(before.totalBytesProcessed)} (via BigQuery dry run, tables: ${refs.map(r => `${r.project ?? settings.projectId}.${r.dataset}.${r.table}`).join(', ')}).`;
+
+      setOptimizePhase('optimize');
+      const result = await optimizeSql(data.sql, schemaContext || undefined, costDiagnostics);
       setOptimizedSql(result); setShowDiff(true);
+
+      // Post-optimization validation — dry-run the rewrite and compare its
+      // output schema + cost against the original, so "preserved the result
+      // set" is verified rather than just taken on the model's word.
+      if (!before.error) {
+        setOptimizePhase('verify');
+        const after = await dryRunQuery(result, settings);
+        if (!after.error) {
+          setCostDelta({ before: before.totalBytesProcessed, after: after.totalBytesProcessed });
+          if (!schemasEqual(before.schemaFields, after.schemaFields)) {
+            setSchemaWarning('The optimized query’s output schema differs from the original — review carefully before using it.');
+          }
+        }
+      }
     } catch (e) {
       setOptimizeError((e as Error).message);
-    } finally { setOptimizing(false); }
+    } finally { setOptimizing(false); setOptimizePhase(null); }
   };
 
   // ── Loading / not found ─────────────────────────────────────────────────────
@@ -276,7 +319,11 @@ export default function SqlViewerPage() {
           <div style={{ marginLeft: 'auto' }}>
             <button onClick={handleOptimize} disabled={optimizing} style={optimizeBtn(optimizing)}>
               {optimizing
-                ? <><RefreshCw size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Optimizing…</>
+                ? <><RefreshCw size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> {
+                    optimizePhase === 'schema'   ? 'Fetching schema…'
+                    : optimizePhase === 'verify' ? 'Verifying result…'
+                    : 'Optimizing…'
+                  }</>
                 : <><Sparkles size={13} /> Optimize with Vertex AI</>}
             </button>
           </div>
@@ -288,6 +335,28 @@ export default function SqlViewerPage() {
           <button onClick={() => setShowDiff(false)} style={actionBtnStyle(dark)}>← Back to SQL</button>
           <span style={{ fontSize: 12, color: dark ? '#94A3B8' : '#64748B', marginLeft: 8 }}>
             Vertex AI optimization
+          </span>
+          {costDelta && (
+            <span style={{ fontSize: 12, marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: dark ? '#94A3B8' : '#64748B' }}>Estimated scan:</span>
+              <span style={{ color: dark ? '#F87171' : '#DC2626', textDecoration: 'line-through' }}>
+                {formatBytes(costDelta.before)}
+              </span>
+              <span style={{ color: dark ? '#6B7280' : '#94A3B8' }}>→</span>
+              <span style={{ color: costDelta.after <= costDelta.before ? '#10B981' : (dark ? '#F87171' : '#DC2626'), fontWeight: 700 }}>
+                {formatBytes(costDelta.after)}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Schema-mismatch warning (post-optimization dry-run check) ─────── */}
+      {showDiff && schemaWarning && (
+        <div style={truncationBar}>
+          <TriangleAlert size={14} style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Output schema changed.</strong> {schemaWarning}
           </span>
         </div>
       )}

@@ -93,7 +93,7 @@ async function callGemini(prompt: string, settings: VertexSettings): Promise<str
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-const OPTIMIZATION_PROMPT = (sql: string) => `\
+const OPTIMIZATION_PROMPT = (sql: string, ddlContext?: string, costDiagnostics?: string) => `\
 You are a senior Google Cloud data engineer and SQL architect specializing in BigQuery.
 Your task has two equally important parts: SELF-DOCUMENTATION and PERFORMANCE OPTIMIZATION.
 
@@ -135,15 +135,33 @@ Optimize the SQL for BigQuery cost and speed:
 - Preserve the original query's logic and result set exactly.
 - Every CTE and every top-level statement must have its annotation — no exceptions.
 - If the query is already optimal, still apply full documentation (Part 1 is mandatory).
+${ddlContext ? `
+━━━ SCHEMA CONTEXT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The CREATE TABLE statements below are the actual DDL for tables referenced in
+this query. Use them to verify join keys, column types, and existing
+partition/cluster columns instead of guessing.
 
+${ddlContext}
+` : ''}${costDiagnostics ? `
+━━━ CURRENT QUERY COST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${costDiagnostics}
+Prioritize changes that reduce bytes scanned for the tables above over purely
+cosmetic rewrites.
+` : ''}
 SQL:
 ${sql}`;
 
 /**
  * Calls Vertex AI Gemini to optimize a BigQuery SQL query.
+ * ddlContext, if provided, is the CREATE TABLE DDL (+ approx table sizes) of
+ * tables referenced in the query (see bigQuerySchema.ts) — it grounds
+ * join/partition suggestions in the real schema instead of the model
+ * guessing from table names. costDiagnostics, if provided, is a BigQuery
+ * dry-run cost summary of the current query, so the model can prioritize
+ * the actually-expensive parts.
  * Returns the optimized SQL string (with one-line comment prepended).
  */
-export async function optimizeSql(sql: string): Promise<string> {
+export async function optimizeSql(sql: string, ddlContext?: string, costDiagnostics?: string): Promise<string> {
   const settings = await loadVertexSettings();
 
   if (!settings.projectId) {
@@ -153,5 +171,5 @@ export async function optimizeSql(sql: string): Promise<string> {
     throw new Error('Vertex AI model not set. Configure it in Settings → Vertex AI.');
   }
 
-  return callGemini(OPTIMIZATION_PROMPT(sql), settings);
+  return callGemini(OPTIMIZATION_PROMPT(sql, ddlContext, costDiagnostics), settings);
 }
