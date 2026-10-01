@@ -249,6 +249,7 @@ export interface DryRunResult {
   referencedTables:    TableRef[];
   schemaFields:         SchemaField[];
   statementType?:       string;   // SELECT, INSERT, MERGE, SCRIPT, … as resolved by BigQuery
+  referencedRoutines?:  string[]; // UDFs / remote functions / TVFs the query calls
   error?:               string;
 }
 
@@ -258,6 +259,7 @@ interface DryRunJobResponse {
       totalBytesProcessed?: string;
       statementType?: string;
       referencedTables?: { projectId: string; datasetId: string; tableId: string }[];
+      referencedRoutines?: { projectId: string; datasetId: string; routineId: string }[];
       schema?: { fields?: { name: string; type: string }[] };
     };
   };
@@ -272,15 +274,19 @@ interface DryRunJobResponse {
  * Used both to ground the optimization prompt in real cost figures and,
  * after optimization, to verify the rewrite didn't change the output shape.
  */
-export async function dryRunQuery(sql: string, settings: VertexSettings): Promise<DryRunResult> {
-  if (!settings.projectId) {
+export async function dryRunQuery(
+  sql:      string,
+  settings: VertexSettings,
+  project:  string = settings.projectId,   // project the dry-run job is created in
+): Promise<DryRunResult> {
+  if (!project) {
     return { totalBytesProcessed: 0, referencedTables: [], schemaFields: [], error: 'No project ID configured.' };
   }
 
   try {
     const token = await getBigQueryToken(settings);
     const resp = await fetch(
-      `https://bigquery.googleapis.com/bigquery/v2/projects/${settings.projectId}/jobs`,
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${project}/jobs`,
       {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -305,6 +311,7 @@ export async function dryRunQuery(sql: string, settings: VertexSettings): Promis
       referencedTables: (q?.referencedTables ?? []).map(t => ({ project: t.projectId, dataset: t.datasetId, table: t.tableId })),
       schemaFields: (q?.schema?.fields ?? []).map(f => ({ name: f.name, type: f.type })),
       statementType: q?.statementType,
+      referencedRoutines: (q?.referencedRoutines ?? []).map(r => `${r.projectId}.${r.datasetId}.${r.routineId}`),
     };
   } catch (e) {
     return { totalBytesProcessed: 0, referencedTables: [], schemaFields: [], error: (e as Error).message };
@@ -386,6 +393,27 @@ interface JobResource {
   error?: { message: string };
 }
 
+// ── Execution safety ──────────────────────────────────────────────────────────
+
+/**
+ * The single rule for whether a query may ever be executed for real.
+ * Executing must never change data anywhere, so only a plain SELECT
+ * qualifies — as classified by BigQuery's own dry run, never by parsing:
+ *   - statementType must be exactly SELECT (DML, DDL, MERGE, EXPORT DATA,
+ *     CALL and multi-statement SCRIPTs are all rejected)
+ *   - no routine calls: a UDF may be a remote function that runs arbitrary
+ *     code in a Cloud Function, which could write data anywhere
+ *   - no EXTERNAL_QUERY, which runs SQL on an external database (Cloud SQL)
+ * Returns the reason execution is refused, or null if it's allowed.
+ */
+export function executionBlocker(sql: string, dry: DryRunResult): string | null {
+  if (dry.error)                         return `dry run failed: ${dry.error}`;
+  if (dry.statementType !== 'SELECT')    return `${dry.statementType ?? 'non-SELECT'} statements are never executed`;
+  if (dry.referencedRoutines?.length)    return `calls user-defined/remote functions (${dry.referencedRoutines.join(', ')}) — never executed`;
+  if (/\bEXTERNAL_QUERY\s*\(/i.test(sql)) return 'uses EXTERNAL_QUERY (runs SQL on an external database) — never executed';
+  return null;
+}
+
 /** Removes trailing semicolons and trailing -- comments so the SQL can be nested in a subquery. */
 function stripTrailing(sql: string): string {
   let s = sql.trimEnd();
@@ -419,7 +447,13 @@ function rowExpression(fields: SchemaField[]): string {
  * full result set: row count + BIT_XOR and a modular SUM of per-row
  * FARM_FINGERPRINTs (the SUM catches duplicate rows that XOR cancels out).
  * Both versions of a query pay the same wrapper overhead, so the slot-time
- * comparison stays fair. Only ever call this with statementType === 'SELECT'.
+ * comparison stays fair.
+ *
+ * Safety: immediately before executing, the EXACT text that will run (wrapper
+ * included) is dry-run in the billing project and must pass executionBlocker —
+ * so even if a caller passed something else, nothing but a plain SELECT is
+ * ever executed. The job has no destination table, so results only go to
+ * BigQuery's anonymous temporary result table.
  *
  * Completion is awaited with getQueryResults long-polls rather than timers —
  * Chrome throttles timers in background tabs to once a minute, and a batch
@@ -447,6 +481,10 @@ FROM __fp`;
   const base = `https://bigquery.googleapis.com/bigquery/v2/projects/${billingProject}`;
   // Fresh headers per request: a benchmark can outlive a 1-hour access token.
   const headers = async () => ({ Authorization: `Bearer ${await getBigQueryToken(settings)}`, 'Content-Type': 'application/json' });
+
+  const guard = await dryRunQuery(wrapped, settings, billingProject);
+  const blocked = executionBlocker(wrapped, guard);
+  if (blocked) return { ...empty, error: `Refused to execute — ${blocked}` };
 
   let job: JobResource;
   try {

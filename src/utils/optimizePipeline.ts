@@ -13,7 +13,7 @@ import { optimizeSqlStructured } from './vertexAI';
 import type { VertexSettings, StructuredOptimization } from './vertexAI';
 import {
   extractTableRefs, fetchTableDdls, fetchTableSizes, dryRunQuery, schemasEqual,
-  formatBytes, benchmarkSelect, qualifyTableRefs,
+  formatBytes, benchmarkSelect, qualifyTableRefs, executionBlocker,
 } from './bigQuerySchema';
 import type { DryRunResult, TableRef, BenchmarkResult } from './bigQuerySchema';
 import { extractPlaceholders, renderTemplate } from './templateVars';
@@ -231,7 +231,8 @@ export async function optimizeFile(
   const verifiedSoFar = !after.error && schemaMatch !== false && after.statementType === before.statementType;
 
   if (!bench.enabled)                          benchmarkSkipped = 'Real-run check disabled';
-  else if (before.statementType !== 'SELECT')  benchmarkSkipped = `${before.statementType ?? 'Non-SELECT'} statements are never executed`;
+  else if (executionBlocker(rendered, before)) benchmarkSkipped = executionBlocker(rendered, before)!;
+  else if (executionBlocker(renderedOpt, after)) benchmarkSkipped = `optimized SQL: ${executionBlocker(renderedOpt, after)}`;
   else if (!verifiedSoFar)                     benchmarkSkipped = 'Rewrite failed static checks';
   else if (!bench.billingProject)              benchmarkSkipped = 'No billing project selected';
 

@@ -189,7 +189,8 @@ Click **Batch Optimize SQL** in the viewer header to open the batch optimizer in
    - Only plain `{{ variable }}` placeholders are supported — files with `{% %}` blocks, `{# #}` comments, filters (`{{ ds | replace(...) }}`) or expressions are flagged and skipped.
    - Variable values are included in the prompt sent to Vertex AI — don't put secrets in these files.
 3. **Real-run check** (off by default) — executes the original and optimized query and compares row count + a checksum of the full result. This is the only way to reach **High** confidence. Choose the **billing project** the runs are charged to, a per-query timeout, and a slot-hour budget for the batch.
-   - **Only `SELECT` statements are ever executed.** `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL and multi-statement scripts are checked by dry run only.
+   - **Nothing that can change data is ever executed.** Only a plain `SELECT` runs — as classified by BigQuery's own dry run of the exact text being executed, re-checked immediately before every run. `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL, `EXPORT DATA`, `CALL`, multi-statement scripts, queries calling user-defined/remote functions, and `EXTERNAL_QUERY` are checked by dry run only (a dry run validates and estimates cost without executing anything).
+   - Executed SELECTs have no destination table; results go only to BigQuery's temporary result storage.
    - If results differ, the original is run once more; if it disagrees with itself (non-deterministic query), the comparison is marked *Inconclusive* instead of failing.
 4. **Parallel files** — how many files are sent to Gemini at once (default 3). Real runs use half that.
 5. Click **Optimize**. Each file shows its live step, the activity log shows what's happening, and the tab title shows progress. Pause, Cancel and Retry (failed/cancelled files) are available.
