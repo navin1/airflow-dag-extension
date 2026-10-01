@@ -145,6 +145,8 @@ The extension can send SQL queries to Google Vertex AI (Gemini) for optimization
 
 1. In Settings → **Vertex AI**, upload your **GCP Service Account JSON key file** or paste the JSON content directly.
    - The service account needs the `roles/aiplatform.user` IAM role.
+   - For schema-grounded optimization (table DDL, sizes, dry-run cost checks) it also needs
+     `roles/bigquery.jobUser` on the Vertex AI project and `roles/bigquery.dataViewer` on the datasets your SQL reads.
 2. Select the **Gemini model** (e.g. `gemini-2.0-flash-001`).
 3. Select the **region** closest to your data (e.g. `us-central1`).
 4. The **Project ID** is auto-filled from the service account JSON.
@@ -154,7 +156,7 @@ The extension can send SQL queries to Google Vertex AI (Gemini) for optimization
 
 1. Go to **IAM & Admin → Service Accounts** in your GCP project.
 2. Click **Create Service Account** → give it a name → click **Create**.
-3. Assign role: **Vertex AI User**.
+3. Assign roles: **Vertex AI User**, **BigQuery Job User**, and **BigQuery Data Viewer** (the last one on the datasets your SQL reads).
 4. Click the service account → **Keys tab → Add Key → Create new key → JSON**.
 5. Download and save the `.json` file securely. Upload it in the extension settings.
 
@@ -169,6 +171,43 @@ The extension can send SQL queries to Google Vertex AI (Gemini) for optimization
 5. Use the **DAG Run selector** to switch between the last 5 runs — task states update automatically.
 6. Click any task node to open its rendered SQL in a new tab.
 7. In the SQL tab, click **Optimize with Vertex AI** to see a side-by-side diff of suggested optimizations.
+
+---
+
+## Step 10 — Batch SQL Optimizer (optimize a folder of .sql files)
+
+Click **Batch Optimize SQL** in the viewer header to open the batch optimizer in a new tab.
+
+1. **SQL files** — click **Choose folder** and pick a folder. Every `.sql` file in it (including subfolders) is listed; tick the ones to optimize. Chrome's "Upload files to this site?" prompt is its standard wording — files are read locally and only sent to Vertex AI and BigQuery in your own project.
+2. **Variables (JSON)** — click **Add JSON files** and pick one or more flat key/value files, e.g.
+   ```json
+   { "project": "my-gcp-project", "dataset": "sales", "lookback_days": 7 }
+   ```
+   `{{ project }}`, `{{ dataset }}` … in the SQL are replaced with these values for the dry runs and real runs. Parentheses instead of braces, missing braces and trailing commas are tolerated.
+   - A key defined in more than one JSON file is flagged; pick which file's value to use (one choice per batch).
+   - Files using a variable that no JSON file defines are flagged and skipped.
+   - Only plain `{{ variable }}` placeholders are supported — files with `{% %}` blocks, `{# #}` comments, filters (`{{ ds | replace(...) }}`) or expressions are flagged and skipped.
+   - Variable values are included in the prompt sent to Vertex AI — don't put secrets in these files.
+3. **Real-run check** (off by default) — executes the original and optimized query and compares row count + a checksum of the full result. This is the only way to reach **High** confidence. Choose the **billing project** the runs are charged to, a per-query timeout, and a slot-hour budget for the batch.
+   - **Only `SELECT` statements are ever executed.** `INSERT`, `UPDATE`, `DELETE`, `MERGE`, DDL and multi-statement scripts are checked by dry run only.
+   - If results differ, the original is run once more; if it disagrees with itself (non-deterministic query), the comparison is marked *Inconclusive* instead of failing.
+4. **Parallel files** — how many files are sent to Gemini at once (default 3). Real runs use half that.
+5. Click **Optimize**. Each file shows its live step, the activity log shows what's happening, and the tab title shows progress. Pause, Cancel and Retry (failed/cancelled files) are available.
+6. Results show bytes scanned (dry run) and slot time (real run) before → after, a confidence level per file (High = results verified identical, Medium = compiles with an identical output schema, Low = a check failed), the verification checks, and the changes Gemini made with their risk.
+7. **Download 2 ZIPs** — `…-templated.zip` keeps the `{{ placeholders }}` (for Airflow), `…-rendered.zip` has the JSON values substituted. Both contain the accepted files in their original folder structure plus `report.csv` and `REPORT.md`. Chrome may ask once to allow multiple downloads.
+
+Results are saved as files finish; if the tab is closed, reopen the batch optimizer and click **Restore** (re-add the JSON files before running again).
+
+### Permissions needed by the batch optimizer
+
+| Role | On | Used for |
+|------|----|----------|
+| `roles/aiplatform.user` | Vertex AI project | Gemini calls |
+| `roles/bigquery.jobUser` | Vertex AI project **and** the billing project | Dry runs, schema lookups, real runs |
+| `roles/bigquery.dataViewer` | Datasets the SQL reads | Table metadata, and reading data during real runs |
+| `resourcemanager.projects.list` (e.g. **Browser**) | Optional | Fills the billing-project dropdown (you can type a project ID without it) |
+
+Two-part table names (`dataset.table`) resolve against the Vertex AI project in Settings; use fully qualified `project.dataset.table` names if your data lives elsewhere. For long batches use the service-account key or OAuth rather than a pasted manual token, which expires after about an hour.
 
 ---
 
@@ -196,6 +235,9 @@ Then in Chrome → `chrome://extensions` → click the **refresh icon** on the A
 | Blank popup / white screen | Open `chrome://extensions`, click **Errors** on the extension card to see the error |
 | 401 Unauthorized from Airflow | Token expired — re-paste a fresh bearer token in Settings |
 | Vertex AI: "Auth error" | Check the service account JSON is valid and has `roles/aiplatform.user` |
+| Batch: "Original SQL failed BigQuery dry run" | Check the variable values, that 2-part table names resolve in the Vertex AI project, and the BigQuery roles above |
+| Batch: file "Needs input" | A `{{ variable }}` has no value in any JSON file, a duplicate key is unresolved, or the file uses unsupported template syntax |
+| Batch: "Not executed: … statements are never executed" | Expected — only `SELECT` queries are run for real |
 | SQL shows "No SQL found" | The task may not be a SQL operator, or it hasn't run successfully in any recent DAG run |
 
 ---

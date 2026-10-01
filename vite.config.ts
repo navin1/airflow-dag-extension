@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         main:      resolve(__dirname, 'index.html'),
         sqlViewer: resolve(__dirname, 'sql-viewer.html'),
+        batch:     resolve(__dirname, 'batch-optimizer.html'),
       },
       output: { chunkFileNames: 'assets/[name]-[hash].js' },
     },

@@ -132,7 +132,16 @@ async function exchangeJwtForToken(jwt: string): Promise<{ token: string; expiry
  * Returns a valid GCP access token for the configured service account.
  * Caches in chrome.storage.local; refreshes automatically when < 2 min remain.
  */
+let inflight: Promise<string> | null = null;
+
 export async function getVertexToken(): Promise<string> {
+  // Single-flight: parallel callers (batch optimizer workers) share one
+  // token exchange instead of each minting their own.
+  inflight ??= mintVertexToken().finally(() => { inflight = null; });
+  return inflight;
+}
+
+async function mintVertexToken(): Promise<string> {
   // Check cache
   const { [TOKEN_CACHE_KEY]: cached, [TOKEN_EXPIRY_KEY]: expiry } =
     await localGet<Record<string, string>>([TOKEN_CACHE_KEY, TOKEN_EXPIRY_KEY]);

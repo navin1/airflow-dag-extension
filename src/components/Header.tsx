@@ -1,10 +1,11 @@
-import { Settings, Layers } from 'lucide-react';
+import { Settings, Layers, FolderUp } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSettings: () => void;
+  onOpenBatch:    () => void;
 }
 
-export default function Header({ onOpenSettings }: HeaderProps) {
+export default function Header({ onOpenSettings, onOpenBatch }: HeaderProps) {
   return (
     <header style={headerStyle}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -21,10 +22,16 @@ export default function Header({ onOpenSettings }: HeaderProps) {
         </div>
       </div>
 
-      <button onClick={onOpenSettings} style={settingsBtn} title="Settings">
-        <Settings size={16} />
-        <span>Settings</span>
-      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onOpenBatch} style={settingsBtn} title="Optimize a folder of SQL files">
+          <FolderUp size={16} />
+          <span>Batch Optimize SQL</span>
+        </button>
+        <button onClick={onOpenSettings} style={settingsBtn} title="Settings">
+          <Settings size={16} />
+          <span>Settings</span>
+        </button>
+      </div>
     </header>
   );
 }

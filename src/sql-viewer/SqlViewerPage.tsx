@@ -15,10 +15,8 @@ import {
 
 import DiffViewer from './DiffViewer';
 import { optimizeSql, loadVertexSettings } from '../utils/vertexAI';
-import {
-  extractTableRefs, fetchTableDdls, fetchTableSizes,
-  dryRunQuery, schemasEqual, formatBytes,
-} from '../utils/bigQuerySchema';
+import { dryRunQuery, schemasEqual, formatBytes } from '../utils/bigQuerySchema';
+import { gatherContext } from '../utils/optimizePipeline';
 import { STATE_COLORS, STATE_ICONS } from '../components/TaskNode';
 import {
   THEMES, THEME_KEYS, DEFAULT_THEME,
@@ -198,25 +196,10 @@ export default function SqlViewerPage() {
       setOptimizePhase('schema');
       const settings = await loadVertexSettings();
 
-      // Dry-run the original query first: it's free (no execution, no bytes
-      // billed) and gives BigQuery's own resolved table list + bytes estimate,
-      // which is more reliable than regex-parsing FROM/JOIN clauses.
-      const before = await dryRunQuery(data.sql, settings);
-      const refs = before.referencedTables.length ? before.referencedTables : extractTableRefs(data.sql);
-
-      // Schema + size lookups are best-effort — missing permissions or an
-      // unresolved project shouldn't block optimization, just proceed without them.
-      const [{ ddl }, { sizeInfo }] = await Promise.all([
-        fetchTableDdls(refs, settings).catch(() => ({ ddl: '', warnings: [] })),
-        fetchTableSizes(refs, settings).catch(() => ({ sizeInfo: '', warnings: [] })),
-      ]);
-      const schemaContext = [ddl, sizeInfo].filter(Boolean).join('\n\n');
-      const costDiagnostics = before.error
-        ? undefined
-        : `Estimated bytes scanned by the current query: ${formatBytes(before.totalBytesProcessed)} (via BigQuery dry run, tables: ${refs.map(r => `${r.project ?? settings.projectId}.${r.dataset}.${r.table}`).join(', ')}).`;
+      const { before, schemaContext, costDiagnostics } = await gatherContext(data.sql, settings);
 
       setOptimizePhase('optimize');
-      const result = await optimizeSql(data.sql, schemaContext || undefined, costDiagnostics);
+      const result = await optimizeSql(data.sql, schemaContext, costDiagnostics);
       setOptimizedSql(result); setShowDiff(true);
 
       // Post-optimization validation — dry-run the rewrite and compare its

@@ -15,12 +15,12 @@ async function storeSqlViewerData(data: Record<string, unknown>): Promise<void> 
   }
 }
 
-function openSqlViewerTab(): void {
+function openExtensionTab(page: string): void {
   if (typeof chrome !== 'undefined' && chrome.tabs) {
-    chrome.tabs.create({ url: chrome.runtime.getURL('sql-viewer.html') });
+    chrome.tabs.create({ url: chrome.runtime.getURL(page) });
   } else {
     // Dev fallback
-    window.open('/sql-viewer.html', '_blank');
+    window.open(`/${page}`, '_blank');
   }
 }
 
@@ -231,7 +231,7 @@ export default function App() {
         loadedAt:  new Date().toISOString(),
       });
 
-      openSqlViewerTab();
+      openExtensionTab('sql-viewer.html');
     } catch (e) {
       setFetchError(`Failed to fetch SQL for "${taskId}": ${(e as Error).message}`);
     } finally {
@@ -250,7 +250,7 @@ export default function App() {
 
   return (
     <div style={appStyle}>
-      <Header onOpenSettings={() => setShowSettings(true)} />
+      <Header onOpenSettings={() => setShowSettings(true)} onOpenBatch={() => openExtensionTab('batch-optimizer.html')} />
 
       <DagExplorer
         onLoad={handleLoadDag}

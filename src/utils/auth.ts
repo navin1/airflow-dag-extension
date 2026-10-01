@@ -48,7 +48,18 @@ async function getCachedOAuthToken(): Promise<string | null> {
   return null;
 }
 
-async function fetchOAuthToken(clientId: string): Promise<string> {
+let inflightOAuth: Promise<string> | null = null;
+
+/**
+ * Single-flight wrapper: when parallel callers (batch optimizer workers) all
+ * find the cache empty, only one interactive auth flow is launched.
+ */
+function fetchOAuthToken(clientId: string): Promise<string> {
+  inflightOAuth ??= fetchOAuthTokenUncached(clientId).finally(() => { inflightOAuth = null; });
+  return inflightOAuth;
+}
+
+async function fetchOAuthTokenUncached(clientId: string): Promise<string> {
   const cached = await getCachedOAuthToken();
   if (cached) return cached;
 

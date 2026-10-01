@@ -73,3 +73,15 @@ button:focus-visible {
   outline: 2px solid #6366F1;
   outline-offset: 2px;
 }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.2; }
+}
+
+/* Batch optimizer: inline styles can't target :disabled */
+.batch-page button:disabled,
+.batch-page input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed !important;
+}
